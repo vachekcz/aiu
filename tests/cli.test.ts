@@ -12,6 +12,7 @@ let accounts: Account[];
 let credentials: Map<string, unknown>;
 let stdout: string;
 let stderr: string;
+let locks: string[];
 
 const fakeProvider: Provider<{ token: string }> = {
   id: 'claude',
@@ -46,6 +47,10 @@ function deps(): Partial<CliDeps> {
     err: (text) => (stderr += `${text}\n`),
     now: () => NOW,
     color: false,
+    lock: async (name, fn) => {
+      locks.push(name);
+      return fn();
+    },
   };
 }
 
@@ -56,6 +61,7 @@ beforeEach(async () => {
   credentials = new Map();
   stdout = '';
   stderr = '';
+  locks = [];
 });
 
 afterEach(async () => {
@@ -74,6 +80,11 @@ describe('aiu', () => {
     expect(await main([], deps())).toBe(0);
     expect(stdout).toContain('claude/personal');
     expect(stdout).toContain(' 42 %');
+  });
+
+  it('prints valid JSON with --json when no accounts are configured', async () => {
+    expect(await main(['--json'], deps())).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({ generatedAt: NOW.toISOString(), accounts: [] });
   });
 
   it('prints JSON with --json', async () => {
@@ -101,6 +112,28 @@ describe('aiu login', () => {
   it('accepts an e-mail address as label', async () => {
     expect(await main(['login', 'claude', '--name', 'ja+ai@pvachek.cz'], deps())).toBe(0);
     expect(credentials.has('claude/ja+ai@pvachek.cz')).toBe(true);
+  });
+
+  it('accepts a label of exactly 64 characters', async () => {
+    expect(await main(['login', 'claude', '--name', 'a'.repeat(64)], deps())).toBe(0);
+  });
+
+  it('removes the new secret when saving the account entry fails', async () => {
+    const failingUpsert = async () => {
+      throw new Error('disk full');
+    };
+    expect(await main(['login', 'claude', '--name', 'personal'], { ...deps(), upsertAccount: failingUpsert })).toBe(1);
+    expect(credentials.has('claude/personal')).toBe(false);
+    expect(stderr).toContain('disk full');
+  });
+
+  it('keeps the existing secret of a re-login when saving the account entry fails', async () => {
+    accounts = [{ provider: 'claude', label: 'personal' }];
+    const failingUpsert = async () => {
+      throw new Error('disk full');
+    };
+    expect(await main(['login', 'claude', '--name', 'personal'], { ...deps(), upsertAccount: failingUpsert })).toBe(1);
+    expect(credentials.get('claude/personal')).toEqual({ token: 'new' });
   });
 
   it.each([['Bad Name'], ['_x'], ['a'.repeat(65)], ['a"b'], ['a/b']])('rejects the label %s', async (label) => {
@@ -132,6 +165,14 @@ describe('aiu accounts / remove', () => {
     expect(await main(['remove', 'claude/personal'], deps())).toBe(0);
     expect(accounts).toEqual([]);
     expect(credentials.has('claude/personal')).toBe(false);
+    expect(locks).toEqual(['claude__personal']);
+  });
+
+  it('rejects extra arguments instead of acting on the first ones', async () => {
+    accounts = [{ provider: 'claude', label: 'personal' }];
+    expect(await main(['remove', 'claude/personal', 'typo'], deps())).toBe(2);
+    expect(stderr).toContain('Unexpected argument: typo');
+    expect(accounts).toHaveLength(1);
   });
 
   it('keeps the account listed when the Keychain refuses to delete its credentials', async () => {

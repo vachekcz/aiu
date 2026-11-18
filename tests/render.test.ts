@@ -53,6 +53,9 @@ describe('formatReset', () => {
   it('uses hours and minutes under 24 hours', () => {
     expect(formatReset(minutes(72), now)).toBe('in 1h12m');
   });
+  it('rounds up, so a reset seconds away is not "in 0m"', () => {
+    expect(formatReset(new Date(now.getTime() + 20_000), now)).toBe('in 1m');
+  });
   it('says now for a past reset', () => {
     expect(formatReset(minutes(-1), now)).toBe('now');
   });
@@ -120,6 +123,7 @@ describe('shouldUseColor', () => {
     expect(shouldUseColor({ isTTY: false }, {})).toBe(false);
     expect(shouldUseColor({ isTTY: true }, { NO_COLOR: '1' })).toBe(false);
     expect(shouldUseColor({ isTTY: true }, {})).toBe(true);
+    expect(shouldUseColor({ isTTY: true }, { NO_COLOR: '' })).toBe(true);
   });
 });
 
@@ -154,5 +158,47 @@ describe('renderJson', () => {
         },
       ],
     });
+  });
+});
+
+describe('renderTable edge rows', () => {
+  const account = { provider: 'claude' as const, label: 'personal' };
+
+  it('colours a warning limit yellow and a normal one green', () => {
+    const output = renderTable(
+      [
+        {
+          account,
+          status: 'ok',
+          limits: [
+            { label: '5h', percent: 60, resetsAt: null, severity: 'warning' },
+            { label: 'Week (all)', percent: 10, resetsAt: null, severity: 'normal' },
+          ],
+        },
+      ],
+      now,
+      { color: true },
+    );
+    expect(output).toContain('\x1b[33m██████░░░░  60 %');
+    expect(output).toContain('\x1b[32m█░░░░░░░░░  10 %');
+  });
+
+  it('says so when an ok account reports no limits', () => {
+    expect(renderTable([{ account, status: 'ok', limits: [] }], now, { color: false })).toContain('no limits reported');
+  });
+
+  it('renders n/a for a limit without percent or detail', () => {
+    const output = renderTable(
+      [{ account, status: 'ok', limits: [{ label: 'gpt-x', percent: null, resetsAt: null, severity: 'normal' }] }],
+      now,
+      { color: false },
+    );
+    expect(output).toContain('gpt-x  n/a');
+  });
+
+  it('makes the whole header row bold', () => {
+    const header = renderTable([{ account, status: 'ok', limits: [] }], now, { color: true }).split('\n')[0]!;
+    expect(header.startsWith('\x1b[1mAccount')).toBe(true);
+    expect(header.endsWith('Resets\x1b[0m')).toBe(true);
   });
 });

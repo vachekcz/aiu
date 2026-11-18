@@ -22,6 +22,21 @@ describe('waitForOAuthCallback', () => {
     await expect(callback.code).rejects.toThrow('OAuth state mismatch');
   });
 
+  it('answers 400 to an unparseable request target and keeps waiting', async () => {
+    const callback = waitForOAuthCallback(options);
+    await callback.ready;
+    expect(await httpGet(`http://localhost:${PORT}//`)).toBe(400);
+    expect(await httpGet(`http://localhost:${PORT}/auth/callback?code=c&state=st`)).toBe(200);
+    expect(await callback.code).toBe('c');
+  });
+
+  it('reports a cancelled consent instead of a state mismatch', async () => {
+    const callback = waitForOAuthCallback(options);
+    await callback.ready;
+    expect(await httpGet(`http://localhost:${PORT}/auth/callback?error=access_denied&state=st`)).toBe(400);
+    await expect(callback.code).rejects.toThrow('Login failed: access_denied');
+  });
+
   it('reports a busy port', async () => {
     const first = waitForOAuthCallback(options);
     await first.ready;

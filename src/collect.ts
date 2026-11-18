@@ -23,6 +23,9 @@ export interface CollectDeps {
 class MissingCredentialsError extends Error {}
 class TimeoutError extends Error {}
 
+/** Name of the per-account lock that guards token refreshes. */
+export const lockName = (id: string): string => id.replaceAll('/', '__');
+
 const loginHint = (account: Account) => `aiu login ${account.provider} --name ${account.label}`;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -37,7 +40,7 @@ async function fetchAccount(account: Account, provider: Provider<unknown>, deps:
   const id = accountId(account);
   // Load inside the lock: a concurrent run may just have rotated the tokens.
   return deps.lock(
-    id.replaceAll('/', '__'),
+    lockName(id),
     async () => {
       let credentials = await deps.loadCredentials(id);
       if (credentials === null) throw new MissingCredentialsError();

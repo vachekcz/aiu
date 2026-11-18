@@ -18,4 +18,9 @@ describe('pkce', () => {
     const token = ['header', Buffer.from(JSON.stringify(payload)).toString('base64url'), 'sig'].join('.');
     expect(decodeJwtPayload(token)).toEqual(payload);
   });
+
+  it.each([['null'], ['42'], ['[1]']])('rejects a payload that is not an object: %s', (json) => {
+    const token = ['header', Buffer.from(json).toString('base64url'), 'sig'].join('.');
+    expect(() => decodeJwtPayload(token)).toThrow('Malformed JWT');
+  });
 });

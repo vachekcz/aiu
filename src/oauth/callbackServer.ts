@@ -25,7 +25,13 @@ export function waitForOAuthCallback(options: CallbackOptions): { ready: Promise
   code.catch(() => undefined);
 
   const server = createServer((request, response) => {
-    const url = new URL(request.url ?? '/', `http://localhost:${options.port}`);
+    let url: URL;
+    try {
+      url = new URL(request.url ?? '/', `http://localhost:${options.port}`);
+    } catch {
+      response.writeHead(400).end();
+      return;
+    }
     if (url.pathname !== options.path) {
       response.writeHead(404).end();
       return;
@@ -36,6 +42,13 @@ export function waitForOAuthCallback(options: CallbackOptions): { ready: Promise
       server.close();
       outcome();
     };
+    const providerError = url.searchParams.get('error');
+    if (providerError) {
+      finish(400, 'Login was cancelled or refused. Return to the terminal.', () =>
+        rejectCode(new Error(`Login failed: ${providerError}`)),
+      );
+      return;
+    }
     const receivedCode = url.searchParams.get('code');
     if (url.searchParams.get('state') !== options.expectedState || !receivedCode) {
       finish(400, 'Login failed: state mismatch. Return to the terminal.', () =>

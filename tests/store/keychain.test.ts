@@ -48,9 +48,12 @@ describe('keychain store (real macOS Keychain)', () => {
 
   it('round-trips an account named by e-mail address', async () => {
     const account = 'test/ja+ai@pvachek.cz';
-    await writeSecret(account, 'value');
-    expect(await readSecret(account)).toBe('value');
-    await deleteSecret(account);
+    try {
+      await writeSecret(account, 'value');
+      expect(await readSecret(account)).toBe('value');
+    } finally {
+      await deleteSecret(account);
+    }
   });
 
   it('returns null for a missing account', async () => {
@@ -61,7 +64,7 @@ describe('keychain store (real macOS Keychain)', () => {
     await writeSecret(ACCOUNT, randomBytes(6000).toString('base64'));
     await deleteSecret(ACCOUNT);
     expect(await readSecret(ACCOUNT)).toBeNull();
-    expect(itemExists(`${ACCOUNT}#0`)).toBe(false);
+    [0, 1, 2, 3].forEach((index) => expect(itemExists(`${ACCOUNT}#${index}`)).toBe(false));
   });
 
   it('rejects account names that would need shell quoting', async () => {

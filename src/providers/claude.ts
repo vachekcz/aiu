@@ -113,7 +113,8 @@ export const claudeProvider: Provider<ClaudeCredentials> = {
 
     const pasted = (await io.prompt('Paste the code shown after login: ')).trim();
     const [code, returnedState] = pasted.split('#');
-    if (!code || returnedState !== state) throw new Error('OAuth state mismatch');
+    if (!code || !returnedState) throw new Error('Paste the whole code shown after login, including the part after "#"');
+    if (returnedState !== state) throw new Error('OAuth state mismatch');
 
     const tokens = await requestTokens({
       grant_type: 'authorization_code',

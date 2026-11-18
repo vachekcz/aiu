@@ -21,7 +21,12 @@ interface RunResult {
   stderr: string;
 }
 
-const service = (): string => process.env.AI_USAGE_KEYCHAIN_SERVICE ?? 'ai-usage';
+function service(): string {
+  const name = process.env.AI_USAGE_KEYCHAIN_SERVICE ?? 'ai-usage';
+  // The name is interpolated into `security -i` commands, so it must not need quoting.
+  if (!SAFE_ACCOUNT.test(name)) throw new Error(`Invalid keychain service name: ${name}`);
+  return name;
+}
 
 function runSecurity(args: string[], input?: string): Promise<RunResult> {
   return new Promise((resolve, reject) => {

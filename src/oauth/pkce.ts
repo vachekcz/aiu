@@ -13,5 +13,7 @@ export function createState(): string {
 export function decodeJwtPayload(token: string): Record<string, unknown> {
   const payload = token.split('.')[1];
   if (!payload) throw new Error('Malformed JWT');
-  return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<string, unknown>;
+  const decoded: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) throw new Error('Malformed JWT');
+  return decoded as Record<string, unknown>;
 }

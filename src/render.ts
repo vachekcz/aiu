@@ -30,7 +30,8 @@ export function formatReset(resetsAt: Date | null, now: Date): string {
   const remainingMs = resetsAt.getTime() - now.getTime();
   if (remainingMs <= 0) return 'now';
   if (remainingMs < DAY_MS) {
-    const totalMinutes = Math.round(remainingMs / 60_000);
+    // Round up, so a reset 20 s away reads "in 1m", not "in 0m".
+    const totalMinutes = Math.ceil(remainingMs / 60_000);
     const hours = Math.floor(totalMinutes / 60);
     const minutesLeft = totalMinutes % 60;
     return hours === 0 ? `in ${minutesLeft}m` : `in ${hours}h${minutesLeft}m`;
@@ -41,7 +42,8 @@ export function formatReset(resetsAt: Date | null, now: Date): string {
 }
 
 export function shouldUseColor(stream: { isTTY?: boolean }, env: NodeJS.ProcessEnv): boolean {
-  return Boolean(stream.isTTY) && env.NO_COLOR === undefined;
+  // no-color.org: only a non-empty NO_COLOR disables colour.
+  return Boolean(stream.isTTY) && !env.NO_COLOR;
 }
 
 interface Row {
@@ -95,13 +97,13 @@ export function renderTable(usages: AccountUsage[], now: Date, options: { color:
     const text = [
       row.account.padEnd(widths.account),
       row.limit.padEnd(widths.limit),
-      paint(used, isHeader ? ANSI.bold : row.color),
+      isHeader ? used : paint(used, row.color),
       row.resets,
     ].join('  ');
     return text.trimEnd();
   };
 
-  return [line(header, true), ...rows.map((row) => line(row, false))].join('\n');
+  return [paint(line(header, true), ANSI.bold), ...rows.map((row) => line(row, false))].join('\n');
 }
 
 export function renderJson(usages: AccountUsage[], now: Date): string {

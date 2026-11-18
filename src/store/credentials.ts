@@ -2,7 +2,12 @@ import { deleteSecret, readSecret, writeSecret } from './keychain.ts';
 
 export async function loadCredentials<C>(id: string): Promise<C | null> {
   const raw = await readSecret(id);
-  return raw === null ? null : (JSON.parse(raw) as C);
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw) as C;
+  } catch {
+    throw new Error(`Stored login for ${id} is corrupted; run: aiu login ${id.replace('/', ' --name ')}`);
+  }
 }
 
 export async function saveCredentials<C>(id: string, credentials: C): Promise<void> {

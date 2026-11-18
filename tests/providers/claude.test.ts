@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildClaudeAuthorizeUrl, claudeProvider, parseClaudeUsage } from '../../src/providers/claude.ts';
@@ -114,7 +115,9 @@ describe('claudeProvider.login', () => {
       client_id: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
       state: authorizeParams.get('state'),
     });
-    expect(typeof body.code_verifier).toBe('string');
+    expect(createHash('sha256').update(body.code_verifier).digest('base64url')).toBe(
+      authorizeParams.get('code_challenge'),
+    );
     expect(result).toEqual({
       credentials: { accessToken: 'at', refreshToken: 'rt', expiresAt: NOW.getTime() + 28800 * 1000 },
       identity: 'me@example.com',
@@ -123,6 +126,10 @@ describe('claudeProvider.login', () => {
 
   it('rejects a pasted code with a different state', async () => {
     await expect(claudeProvider.login(fakeIO(() => 'thecode#other'))).rejects.toThrow('OAuth state mismatch');
+  });
+
+  it('asks for the whole pasted code when the state part is missing', async () => {
+    await expect(claudeProvider.login(fakeIO(() => 'thecode'))).rejects.toThrow('including the part after "#"');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

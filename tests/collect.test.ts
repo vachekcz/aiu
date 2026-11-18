@@ -91,10 +91,11 @@ describe('collectUsage', () => {
     store.set('claude/personal', { token: 'a', expiresAt: FRESH });
     store.set('chatgpt/pro', { token: 'b', expiresAt: FRESH });
 
-    const started = Date.now();
     const result = await collectUsage([claudePersonal, chatgptPro], deps({ claude: provider, chatgpt: provider }));
 
-    expect(Date.now() - started).toBeLessThan(95);
+    // Overlap, not wall-clock: the second fetch starts before the first one's 50 ms sleep ends.
+    const [first, second] = [...provider.fetchStarts].sort((a, b) => a - b);
+    expect(second! - first!).toBeLessThan(50);
     expect(result.map((usage) => [usage.account.label, usage.status])).toEqual([
       ['personal', 'ok'],
       ['pro', 'ok'],

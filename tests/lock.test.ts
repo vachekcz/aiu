@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -57,9 +57,43 @@ describe('withFileLock', () => {
   });
 
   it('times out while a fresh lock is held', async () => {
-    const release = withFileLock('busy', () => sleep(300));
-    await sleep(20);
-    await expect(withFileLock('busy', async () => 'never', { timeoutMs: 100 })).rejects.toThrow('Timed out waiting for lock');
-    await release;
+    let releaseHolder!: () => void;
+    let markHeld!: () => void;
+    const held = new Promise<void>((resolve) => (markHeld = resolve));
+    const holder = withFileLock('busy', () => {
+      markHeld();
+      return new Promise<void>((resolve) => (releaseHolder = resolve));
+    });
+    try {
+      await held;
+      await expect(withFileLock('busy', async () => 'never', { timeoutMs: 100 })).rejects.toThrow(
+        'Timed out waiting for lock',
+      );
+    } finally {
+      releaseHolder();
+      await holder;
+    }
+  });
+
+  it('does not release a lock that another holder took over', async () => {
+    const lockFile = join(dir, 'locks', 'taken.lock');
+    await withFileLock('taken', async () => {
+      // Simulates a waiter that judged this lock stale and acquired it meanwhile.
+      await writeFile(lockFile, '1 someone-else');
+    });
+    expect(await readFile(lockFile, 'utf8')).toBe('1 someone-else');
+  });
+
+  it('fails instead of spinning when a stale lock cannot be removed', async () => {
+    const lockDir = join(dir, 'locks');
+    await mkdir(lockDir, { recursive: true });
+    const lockFile = join(lockDir, 'stuck.lock');
+    await writeFile(lockFile, '999999');
+    await chmod(lockDir, 0o500);
+    try {
+      await expect(withFileLock('stuck', async () => 'never', { timeoutMs: 200 })).rejects.toThrow(/EACCES/);
+    } finally {
+      await chmod(lockDir, 0o700);
+    }
   });
 });

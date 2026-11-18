@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { listAccounts, removeAccount, upsertAccount } from '../../src/store/accounts.ts';
+import { configDir, listAccounts, removeAccount, upsertAccount } from '../../src/store/accounts.ts';
 
 let dir: string;
 
@@ -29,6 +29,11 @@ describe('accounts store', () => {
       { provider: 'claude', label: 'personal', identity: 'me@example.com' },
       { provider: 'chatgpt', label: 'pro' },
     ]);
+  });
+
+  it('treats an empty AI_USAGE_CONFIG_DIR as unset', () => {
+    process.env.AI_USAGE_CONFIG_DIR = '';
+    expect(configDir()).toBe(join(homedir(), '.config', 'ai-usage'));
   });
 
   it('removes an account and reports whether it existed', async () => {

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -39,6 +40,30 @@ describe('keychain store argv safety', () => {
     const allArgs = calls.flatMap((call) => call.args);
     expect(allArgs.some((arg) => arg.includes(secret) || arg.includes(encoded))).toBe(false);
     expect(calls.some((call) => call.stdin.includes(encoded))).toBe(true);
+  });
+
+  it('never passes any chunk of a multi-chunk secret as a process argument', async () => {
+    calls.length = 0;
+    const secret = randomBytes(6000).toString('base64');
+    await writeSecret('claude/personal', secret);
+
+    const encoded = Buffer.from(secret, 'utf8').toString('base64');
+    const chunks = encoded.match(/.{1,3000}/g)!;
+    expect(chunks.length).toBeGreaterThan(1);
+    const allArgs = calls.flatMap((call) => call.args).join('\n');
+    chunks.forEach((chunk) => {
+      expect(allArgs).not.toContain(chunk);
+      expect(calls.some((call) => call.stdin.includes(chunk))).toBe(true);
+    });
+  });
+
+  it('rejects a service name that would change the security -i command', async () => {
+    process.env.AI_USAGE_KEYCHAIN_SERVICE = 'x" -a "other';
+    try {
+      await expect(writeSecret('claude/personal', 'value')).rejects.toThrow('Invalid keychain service name');
+    } finally {
+      delete process.env.AI_USAGE_KEYCHAIN_SERVICE;
+    }
   });
 
   it('fails when a command inside `security -i` fails although the exit code is 0', async () => {

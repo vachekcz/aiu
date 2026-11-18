@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import { collectUsage } from './collect.ts';
+import { collectUsage, lockName } from './collect.ts';
 import { withFileLock } from './lock.ts';
 import { providers as defaultProviders } from './providers/index.ts';
 import { renderJson, renderTable, shouldUseColor } from './render.ts';
@@ -38,6 +38,7 @@ export interface CliDeps {
   err: (text: string) => void;
   now: () => Date;
   color: boolean;
+  lock: typeof withFileLock;
 }
 
 const terminalIO: LoginIO = {
@@ -70,10 +71,15 @@ const defaultDeps = (): CliDeps => ({
   err: (text) => process.stderr.write(`${text}\n`),
   now: () => new Date(),
   color: shouldUseColor(process.stdout, process.env),
+  lock: withFileLock,
 });
 
 async function showUsage(deps: CliDeps, json: boolean): Promise<number> {
   const accounts = await deps.listAccounts();
+  if (accounts.length === 0 && json) {
+    deps.out(renderJson([], deps.now()));
+    return 0;
+  }
   if (accounts.length === 0) {
     deps.out(`No accounts yet. Add one with: aiu login <${SUPPORTED_PROVIDERS}> --name <label>`);
     return 0;
@@ -85,7 +91,7 @@ async function showUsage(deps: CliDeps, json: boolean): Promise<number> {
     now: deps.now,
     timeoutMs: FETCH_TIMEOUT_MS,
     refreshTimeoutMs: REFRESH_TIMEOUT_MS,
-    lock: withFileLock,
+    lock: deps.lock,
   });
   const now = deps.now();
   deps.out(json ? renderJson(usages, now) : renderTable(usages, now, { color: deps.color }));
@@ -108,8 +114,15 @@ async function login(deps: CliDeps, providerName: string | undefined, label: str
   const account: Account = { provider: provider.id, label };
   const id = accountId(account);
   const result = await provider.login(deps.io);
+  const isNew = !(await deps.listAccounts()).some((existing) => accountId(existing) === id);
   await deps.saveCredentials(id, result.credentials);
-  await deps.upsertAccount(result.identity ? { ...account, identity: result.identity } : account);
+  try {
+    await deps.upsertAccount(result.identity ? { ...account, identity: result.identity } : account);
+  } catch (error) {
+    // Do not leave a secret behind that no account entry points to.
+    if (isNew) await deps.deleteCredentials(id).catch(() => undefined);
+    throw error;
+  }
   deps.out(`Added ${id}${result.identity ? ` (${result.identity})` : ''}`);
   return 0;
 }
@@ -132,7 +145,8 @@ async function removeCommand(deps: CliDeps, id: string | undefined): Promise<num
     return 1;
   }
   // Credentials first: if the Keychain refuses, the account stays listed and `remove` can be retried.
-  await deps.deleteCredentials(id);
+  // Under the account lock, so an in-flight token refresh cannot write the secret back.
+  await deps.lock(lockName(id), () => deps.deleteCredentials(id));
   await deps.removeAccount(id);
   deps.out(`Removed ${id}`);
   return 0;
@@ -161,7 +175,11 @@ export async function main(argv: string[], overrides: Partial<CliDeps> = {}): Pr
     return 0;
   }
 
-  const [command, argument] = positionals;
+  const [command, argument, ...extra] = positionals;
+  if (extra.length > 0) {
+    deps.err(`Unexpected argument: ${extra.join(' ')}\n\n${USAGE}`);
+    return 2;
+  }
   try {
     switch (command) {
       case undefined:

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { accountId, type Account } from '../types.ts';
 
 export const configDir = (): string =>
-  process.env.AI_USAGE_CONFIG_DIR ?? join(homedir(), '.config', 'ai-usage');
+  process.env.AI_USAGE_CONFIG_DIR || join(homedir(), '.config', 'ai-usage');
 
 const accountsFile = (): string => join(configDir(), 'accounts.json');
 

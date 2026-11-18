@@ -11,7 +11,8 @@ import { deleteCredentials, loadCredentials, saveCredentials } from './store/cre
 import { accountId, type Account, type LoginIO, type Provider, type ProviderId } from './types.ts';
 
 const PROVIDER_IDS: readonly ProviderId[] = ['claude', 'chatgpt', 'grok'];
-const LABEL_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+// Short names ("personal") or e-mail addresses ("ja@pvachek.cz"); must stay Keychain-safe (see store/keychain.ts).
+const LABEL_PATTERN = /^[a-z0-9][a-z0-9_.@+-]{0,63}$/;
 const FETCH_TIMEOUT_MS = 10_000;
 
 const USAGE = `Usage:
@@ -97,7 +98,9 @@ async function login(deps: CliDeps, providerName: string | undefined, label: str
     return 2;
   }
   if (!label || !LABEL_PATTERN.test(label)) {
-    deps.err('Invalid label: use 1–32 lowercase letters, digits, "-" or "_", starting with a letter or digit.');
+    deps.err(
+      'Invalid label: use up to 64 lowercase letters, digits or "-_.@+" (e.g. "personal" or an e-mail), starting with a letter or digit.',
+    );
     return 2;
   }
   const account: Account = { provider: provider.id, label };

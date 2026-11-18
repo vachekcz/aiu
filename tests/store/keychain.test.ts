@@ -46,6 +46,13 @@ describe('keychain store (real macOS Keychain)', () => {
     expect(itemExists(`${ACCOUNT}#2`)).toBe(false);
   });
 
+  it('round-trips an account named by e-mail address', async () => {
+    const account = 'test/ja+ai@pvachek.cz';
+    await writeSecret(account, 'value');
+    expect(await readSecret(account)).toBe('value');
+    await deleteSecret(account);
+  });
+
   it('returns null for a missing account', async () => {
     expect(await readSecret('test/does-not-exist')).toBeNull();
   });

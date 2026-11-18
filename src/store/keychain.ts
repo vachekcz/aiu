@@ -10,7 +10,8 @@ import { spawn } from 'node:child_process';
 
 const CHUNK_SIZE = 3000;
 const NOT_FOUND_EXIT_CODE = 44;
-const SAFE_ACCOUNT = /^[A-Za-z0-9_./-]+$/;
+// Characters that need no quoting inside `security -i` double-quoted arguments.
+const SAFE_ACCOUNT = /^[A-Za-z0-9_./@+-]+$/;
 
 interface RunResult {
   code: number;

@@ -98,7 +98,12 @@ describe('aiu login', () => {
     expect(stdout).toContain('Added claude/personal (me@example.com)');
   });
 
-  it.each([['Bad Name'], ['_x'], ['a'.repeat(33)]])('rejects the label %s', async (label) => {
+  it('accepts an e-mail address as label', async () => {
+    expect(await main(['login', 'claude', '--name', 'ja+ai@pvachek.cz'], deps())).toBe(0);
+    expect(credentials.has('claude/ja+ai@pvachek.cz')).toBe(true);
+  });
+
+  it.each([['Bad Name'], ['_x'], ['a'.repeat(65)], ['a"b'], ['a/b']])('rejects the label %s', async (label) => {
     expect(await main(['login', 'claude', '--name', label], deps())).toBe(2);
     expect(stderr).toContain('Invalid label');
   });

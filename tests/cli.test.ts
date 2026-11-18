@@ -148,6 +148,16 @@ describe('aiu accounts / remove', () => {
     expect(await main(['remove', 'claude/nobody'], deps())).toBe(1);
     expect(stderr).toContain('No such account: claude/nobody');
   });
+
+  it('reports an id that cannot exist as unknown, without touching the Keychain', async () => {
+    let deleted = false;
+    const trackingDelete = async () => {
+      deleted = true;
+    };
+    expect(await main(['remove', 'claude/my label'], { ...deps(), deleteCredentials: trackingDelete })).toBe(1);
+    expect(stderr).toContain('No such account: claude/my label');
+    expect(deleted).toBe(false);
+  });
 });
 
 describe('help and unknown input', () => {

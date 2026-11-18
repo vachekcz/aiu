@@ -126,13 +126,14 @@ async function removeCommand(deps: CliDeps, id: string | undefined): Promise<num
     deps.err(USAGE);
     return 2;
   }
-  // Credentials first: if the Keychain refuses, the account stays listed and `remove` can be retried.
-  await deps.deleteCredentials(id);
-  const existed = await deps.removeAccount(id);
-  if (!existed) {
+  const accounts = await deps.listAccounts();
+  if (!accounts.some((account) => accountId(account) === id)) {
     deps.err(`No such account: ${id}`);
     return 1;
   }
+  // Credentials first: if the Keychain refuses, the account stays listed and `remove` can be retried.
+  await deps.deleteCredentials(id);
+  await deps.removeAccount(id);
   deps.out(`Removed ${id}`);
   return 0;
 }

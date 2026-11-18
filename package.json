@@ -1,0 +1,22 @@
+{
+  "name": "ai-usage",
+  "version": "0.1.0",
+  "description": "Show current usage limits of your AI subscriptions (Claude, ChatGPT, Grok)",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "aiu": "./src/cli.ts"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}

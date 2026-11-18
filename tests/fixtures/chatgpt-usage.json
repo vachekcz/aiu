@@ -1,0 +1,25 @@
+{
+  "plan_type": "pro",
+  "rate_limit": {
+    "allowed": false,
+    "limit_reached": true,
+    "primary_window": {
+      "used_percent": 100,
+      "limit_window_seconds": 604800,
+      "reset_after_seconds": 173752,
+      "reset_at": 1795205991
+    },
+    "secondary_window": null
+  },
+  "code_review_rate_limit": null,
+  "additional_rate_limits": null,
+  "model_usage": {
+    "gpt-6-astra": {
+      "available": false,
+      "available_at": "2026-11-20T20:19:52.132766Z",
+      "credits_would_enable": true
+    }
+  },
+  "credits": { "has_credits": false, "balance": "0" },
+  "promo": null
+}

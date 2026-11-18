@@ -24,6 +24,10 @@ aiu accounts                         # list configured accounts
 aiu remove claude/personal           # forget an account
 ```
 
+Below the table, `aiu` recommends which account to use now per service: the one whose unused weekly
+allowance lapses fastest (weekly % left per hour until its reset), skipping accounts whose 5h or weekly
+limit is used up. It also lists model limits (e.g. Fable) that are used up and when they free up.
+
 To add several accounts of the same service, switch the account in the browser
 (or use a private window) before each `aiu login`.
 

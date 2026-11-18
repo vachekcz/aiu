@@ -68,8 +68,9 @@ one as P3.
    question for the user, never an improvised answer. Overengineering items
    are suggestions.
 4. **Round 2** runs when round 1 had a P1 or when the fixes changed code
-   rather than only prose. Seed it with the step-1 seed, the round-1 findings
-   with the author's statuses and reasons, and the pushed head, nothing else.
+   rather than only prose. Seed it with the step-1 seed, the round-1 SHA, the
+   round-1 findings with the author's statuses and reasons, and the pushed
+   head, nothing else.
    Round 2 reviews only the fixes,
    `git log -p --first-parent --remerge-diff <round-1 sha>..<new head>`:
    commits brought in by merging the base branch stay out and such a merge

@@ -115,7 +115,7 @@ async function login(deps: CliDeps, providerName: string | undefined, label: str
   const id = accountId(account);
   const result = await provider.login(deps.io);
   const isNew = !(await deps.listAccounts()).some((existing) => accountId(existing) === id);
-  await deps.saveCredentials(id, result.credentials);
+  await deps.lock(lockName(id), () => deps.saveCredentials(id, result.credentials));
   try {
     await deps.upsertAccount(result.identity ? { ...account, identity: result.identity } : account);
   } catch (error) {

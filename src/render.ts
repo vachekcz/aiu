@@ -59,7 +59,8 @@ function formatUsed(limit: Limit): string {
   const clamped = Math.min(100, Math.max(0, limit.percent));
   const filled = Math.round(clamped / (100 / BAR_CELLS));
   const bar = '█'.repeat(filled) + '░'.repeat(BAR_CELLS - filled);
-  const percentText = `${String(Math.round(limit.percent)).padStart(3)} %`;
+  // Floor, so 79.6 % does not read as the 80 % threshold while it is still below it.
+  const percentText = `${String(Math.floor(limit.percent)).padStart(3)} %`;
   const marker = limit.severity === 'critical' ? '  !' : '';
   return `${bar} ${percentText}${marker}`;
 }

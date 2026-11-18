@@ -56,6 +56,11 @@ describe('keychain store (real macOS Keychain)', () => {
     }
   });
 
+  it('rejects a head that claims an absurd number of chunks', async () => {
+    execFileSync('security', ['add-generic-password', '-U', '-s', SERVICE, '-a', ACCOUNT, '-w', 'chunks:999999999']);
+    await expect(readSecret(ACCOUNT)).rejects.toThrow('Corrupted keychain entry');
+  });
+
   it('returns null for a missing account', async () => {
     expect(await readSecret('test/does-not-exist')).toBeNull();
   });

@@ -77,6 +77,15 @@ describe('renderTable', () => {
     expect(output).toContain('Fri 19:00');
   });
 
+  it('floors the percent, so a value just under the threshold does not read as 80 %', () => {
+    const output = renderTable(
+      [{ account: { provider: 'claude', label: 'x' }, status: 'ok', limits: [{ label: '5h', percent: 79.6, resetsAt: null, severity: 'warning' }] }],
+      now,
+      { color: false },
+    );
+    expect(output).toContain(' 79 %');
+  });
+
   it('marks critical rows with an exclamation mark', () => {
     const criticalRows = lines.filter((line) => line.includes(' 80 %') || line.includes('100 %'));
     expect(criticalRows).toHaveLength(2);

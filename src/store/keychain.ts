@@ -9,6 +9,8 @@ import { spawn } from 'node:child_process';
  */
 
 const CHUNK_SIZE = 3000;
+// Far above any real token set (a few KB); bounds the reads a corrupted head can trigger.
+const MAX_CHUNKS = 64;
 const NOT_FOUND_EXIT_CODE = 44;
 // `security -i` exits with the status of its last command only; earlier failures show up on stderr as "<command>: returned -NNNN".
 const INTERACTIVE_FAILURE = /: returned -?\d+/;
@@ -96,7 +98,7 @@ export async function readSecret(account: string): Promise<string | null> {
   const head = await readItem(account);
   if (head === null) return null;
   const count = Number(/^chunks:(\d+)$/.exec(head)?.[1]);
-  if (!Number.isInteger(count) || count < 1) throw new Error(`Corrupted keychain entry for ${account}`);
+  if (!Number.isInteger(count) || count < 1 || count > MAX_CHUNKS) throw new Error(`Corrupted keychain entry for ${account}`);
 
   const chunks = await Promise.all(
     Array.from({ length: count }, (_, index) => readItem(chunkItem(account, index))),
@@ -107,6 +109,7 @@ export async function readSecret(account: string): Promise<string | null> {
 
 export async function deleteSecret(account: string): Promise<void> {
   assertSafeAccount(account);
-  await deleteItem(account);
+  // Chunks first: if one cannot be deleted, the head still points at them and a retry finds them.
   await deleteChunksFrom(account, 0);
+  await deleteItem(account);
 }

@@ -41,7 +41,7 @@ function windowLimit(window: unknown, prefix?: string): { limit: Limit; seconds:
   const resetAt = asNumber(record.reset_at);
   const resetAfter = asNumber(record.reset_after_seconds);
   const resetsAt =
-    resetAt !== null ? new Date(resetAt * 1000) : resetAfter !== null ? new Date(Date.now() + resetAfter * 1000) : null;
+    resetAt !== null ? asDate(resetAt * 1000) : resetAfter !== null ? asDate(Date.now() + resetAfter * 1000) : null;
   const label = prefix ? `${prefix} ${windowLabel(seconds)}` : windowLabel(seconds);
   return { limit: { label, percent, severity: severityForPercent(percent), resetsAt }, seconds };
 }
@@ -105,8 +105,16 @@ async function requestTokens(init: {
   return (await response.json()) as Record<string, unknown>;
 }
 
+function jwtExpiry(token: string): number | null {
+  try {
+    return asNumber(decodeJwtPayload(token).exp);
+  } catch {
+    return null;
+  }
+}
+
 function expiresAtFrom(accessToken: string, expiresIn: number | null): number {
-  const exp = asNumber(decodeJwtPayload(accessToken).exp);
+  const exp = jwtExpiry(accessToken);
   if (exp !== null) return exp * 1000;
   if (expiresIn !== null) return Date.now() + expiresIn * 1000;
   throw new Error('Cannot determine ChatGPT token expiry');

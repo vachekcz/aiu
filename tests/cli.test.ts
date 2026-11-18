@@ -107,6 +107,7 @@ describe('aiu login', () => {
     expect(credentials.get('claude/personal')).toEqual({ token: 'new' });
     expect(accounts).toEqual([{ provider: 'claude', label: 'personal', identity: 'me@example.com' }]);
     expect(stdout).toContain('Added claude/personal (me@example.com)');
+    expect(locks).toEqual(['claude__personal']);
   });
 
   it('accepts an e-mail address as label', async () => {
@@ -143,7 +144,9 @@ describe('aiu login', () => {
 
   it('rejects a missing label and an unknown provider', async () => {
     expect(await main(['login', 'claude'], deps())).toBe(2);
+    expect(stderr).toContain('Invalid label');
     expect(await main(['login', 'gemini', '--name', 'x'], deps())).toBe(2);
+    expect(stderr).toContain('Unknown provider: gemini');
   });
 
   it('rejects a provider that is not implemented and lists only implemented ones', async () => {

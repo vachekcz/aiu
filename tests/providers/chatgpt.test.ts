@@ -53,14 +53,21 @@ describe('parseChatGptUsage', () => {
   it('lists the 5h window before the weekly one', () => {
     const { limits } = parseChatGptUsage({
       rate_limit: {
-        primary_window: { used_percent: 20, limit_window_seconds: 18000, reset_at: 1 },
-        secondary_window: { used_percent: 10, limit_window_seconds: 604800, reset_at: 2 },
+        primary_window: { used_percent: 10, limit_window_seconds: 604800, reset_at: 2 },
+        secondary_window: { used_percent: 20, limit_window_seconds: 18000, reset_at: 1 },
       },
     });
     expect(limits.map((limit) => [limit.label, limit.percent])).toEqual([
       ['5h', 20],
       ['Week', 10],
     ]);
+  });
+
+  it('drops a reset timestamp that is out of range instead of producing an invalid date', () => {
+    const { limits } = parseChatGptUsage({
+      rate_limit: { primary_window: { used_percent: 5, limit_window_seconds: 18000, reset_at: 1e20 } },
+    });
+    expect(limits[0]!.resetsAt).toBeNull();
   });
 
   it('marks available models as normal without a reset', () => {
@@ -158,6 +165,17 @@ describe('chatgptProvider.refresh', () => {
       scope: 'openid profile email',
     });
     expect(refreshed).toEqual({ accessToken, refreshToken: 'new-rt', accountId: 'acc-1', expiresAt: 1_900_000_000_000 });
+  });
+
+  it('falls back to expires_in when the access token is not a JWT', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-18T22:00:00Z'), toFake: ['Date'] });
+    try {
+      fetchMock.mockResolvedValue(jsonResponse({ access_token: 'opaque', refresh_token: 'new-rt', expires_in: 3600 }));
+      const refreshed = await chatgptProvider.refresh(credentials, new AbortController().signal);
+      expect(refreshed.expiresAt).toBe(Date.parse('2026-11-18T23:00:00Z'));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([400, 401])('throws AuthExpiredError on HTTP %i', async (status) => {

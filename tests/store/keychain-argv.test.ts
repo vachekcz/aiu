@@ -29,7 +29,7 @@ vi.mock('node:child_process', () => ({
   },
 }));
 
-const { writeSecret } = await import('../../src/store/keychain.ts');
+const { deleteSecret, writeSecret } = await import('../../src/store/keychain.ts');
 
 describe('keychain store argv safety', () => {
   it('never passes the secret (or its encoded chunks) as a process argument', async () => {
@@ -55,6 +55,13 @@ describe('keychain store argv safety', () => {
       expect(allArgs).not.toContain(chunk);
       expect(calls.some((call) => call.stdin.includes(chunk))).toBe(true);
     });
+  });
+
+  it('deletes the chunks before the head, so a failed delete can be retried', async () => {
+    calls.length = 0;
+    await deleteSecret('claude/personal');
+    const deletes = calls.filter((call) => call.args[0] === 'delete-generic-password').map((call) => call.args.at(-1));
+    expect(deletes).toEqual(['claude/personal#0', 'claude/personal']);
   });
 
   it('rejects a service name that would change the security -i command', async () => {

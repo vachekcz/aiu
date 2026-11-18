@@ -147,7 +147,9 @@ describe('chatgptProvider.refresh', () => {
     const accessToken = jwt({ exp: 1_900_000_000 });
     fetchMock.mockResolvedValue(jsonResponse({ access_token: accessToken, refresh_token: 'new-rt' }));
 
-    const refreshed = await chatgptProvider.refresh(credentials);
+    const signal = new AbortController().signal;
+    const refreshed = await chatgptProvider.refresh(credentials, signal);
+    expect(fetchMock.mock.calls[0]![1].signal).toBe(signal);
 
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({
       client_id: CLIENT_ID,
@@ -160,7 +162,7 @@ describe('chatgptProvider.refresh', () => {
 
   it.each([400, 401])('throws AuthExpiredError on HTTP %i', async (status) => {
     fetchMock.mockResolvedValue(jsonResponse({ error: 'invalid_grant' }, status));
-    await expect(chatgptProvider.refresh(credentials)).rejects.toBeInstanceOf(AuthExpiredError);
+    await expect(chatgptProvider.refresh(credentials, new AbortController().signal)).rejects.toBeInstanceOf(AuthExpiredError);
   });
 });
 

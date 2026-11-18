@@ -21,6 +21,7 @@ const chatgptPro: Account = { provider: 'chatgpt', label: 'pro' };
 
 interface FakeProvider extends Provider<FakeCredentials> {
   refreshCalls: number;
+  refreshSignals: AbortSignal[];
   fetchTokens: string[];
   fetchStarts: number[];
 }
@@ -32,12 +33,14 @@ function fakeProvider(options: {
   const provider: FakeProvider = {
     id: 'claude',
     refreshCalls: 0,
+    refreshSignals: [],
     fetchTokens: [],
     fetchStarts: [],
     login: async () => ({ credentials: { token: 'x', expiresAt: FRESH } }),
     needsRefresh: (credentials, now) => credentials.expiresAt <= now.getTime(),
-    refresh: async (credentials) => {
+    refresh: async (credentials, signal) => {
       provider.refreshCalls++;
+      provider.refreshSignals.push(signal);
       await sleep(20);
       return options.refresh ? options.refresh(credentials) : { token: `refreshed-${provider.refreshCalls}`, expiresAt: FRESH };
     },
@@ -65,6 +68,7 @@ function deps(providers: CollectDeps['providers'], overrides: Partial<CollectDep
     },
     now: () => NOW,
     timeoutMs: 1000,
+    refreshTimeoutMs: 3000,
     lock: withFileLock,
     ...overrides,
   };
@@ -104,6 +108,7 @@ describe('collectUsage', () => {
     const [usage] = await collectUsage([claudePersonal], deps({ claude: provider }));
 
     expect(provider.refreshCalls).toBe(1);
+    expect(provider.refreshSignals[0]).toBeInstanceOf(AbortSignal);
     expect(saves).toEqual(['claude/personal:refreshed-1']);
     expect(provider.fetchTokens).toEqual(['refreshed-1']);
     expect(usage).toMatchObject({ status: 'ok', plan: 'max' });

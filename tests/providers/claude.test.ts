@@ -132,7 +132,9 @@ describe('claudeProvider.refresh', () => {
 
   it('posts a refresh_token grant and keeps the old refresh token when none is returned', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ access_token: 'new', expires_in: 3600 }));
-    const refreshed = await claudeProvider.refresh(credentials);
+    const signal = new AbortController().signal;
+    const refreshed = await claudeProvider.refresh(credentials, signal);
+    expect(fetchMock.mock.calls[0]![1].signal).toBe(signal);
 
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
     expect(body).toEqual({
@@ -146,7 +148,7 @@ describe('claudeProvider.refresh', () => {
 
   it.each([400, 401])('throws AuthExpiredError on HTTP %i', async (status) => {
     fetchMock.mockResolvedValue(jsonResponse({ error: 'invalid_grant' }, status));
-    await expect(claudeProvider.refresh(credentials)).rejects.toBeInstanceOf(AuthExpiredError);
+    await expect(claudeProvider.refresh(credentials, new AbortController().signal)).rejects.toBeInstanceOf(AuthExpiredError);
   });
 });
 

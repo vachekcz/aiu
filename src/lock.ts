@@ -1,4 +1,4 @@
-import { mkdir, open, stat, unlink } from 'node:fs/promises';
+import { mkdir, open, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { configDir } from './store/accounts.ts';
 
@@ -6,10 +6,23 @@ const RETRY_INTERVAL_MS = 50;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function isProcessGone(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    // EPERM means the process exists but belongs to someone else.
+    return (error as NodeJS.ErrnoException).code === 'ESRCH';
+  }
+}
+
+/** A lock is stale when it is old or its holder is gone (e.g. a run killed by Ctrl-C, which skips `finally`). */
 async function isStale(lockFile: string, staleMs: number): Promise<boolean> {
   try {
     const { mtimeMs } = await stat(lockFile);
-    return Date.now() - mtimeMs > staleMs;
+    if (Date.now() - mtimeMs > staleMs) return true;
+    const pid = Number((await readFile(lockFile, 'utf8')).trim());
+    return Number.isInteger(pid) && pid > 0 && isProcessGone(pid);
   } catch {
     return false;
   }

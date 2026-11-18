@@ -44,7 +44,7 @@ export interface Provider<C> {
   login(io: LoginIO): Promise<LoginResult<C>>;
   needsRefresh(credentials: C, now: Date): boolean;
   /** Throws AuthExpiredError when the provider rejects the refresh token. */
-  refresh(credentials: C): Promise<C>;
+  refresh(credentials: C, signal: AbortSignal): Promise<C>;
   fetchUsage(credentials: C, signal: AbortSignal): Promise<UsageSnapshot>;
 }
 

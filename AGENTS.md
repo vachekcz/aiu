@@ -6,8 +6,9 @@ Instructions for coding agents working in this repo. User-facing docs live in
 
 ## Project
 
-`aiu` is a macOS CLI (TypeScript, Node 24+, run directly from `src/cli.ts`)
-that shows the usage limits of Claude and ChatGPT/Codex subscriptions. Each
+`aiu` is a macOS CLI (TypeScript, Node 24.2+, run directly from `src/cli.ts`)
+that shows the usage limits of Claude and ChatGPT/Codex subscriptions (Grok is
+planned; `ProviderId` already lists it, `src/providers/index.ts` does not). Each
 provider in `src/providers/` turns its unofficial usage endpoint into the
 normalised `Limit` from `src/types.ts`; `src/render.ts` prints a table or JSON.
 
@@ -34,6 +35,9 @@ npm run typecheck   # tsc --noEmit
 - Tests never hit real endpoints; stub `fetch`.
 - Code, identifiers, comments, CLI output and commit messages are in English.
   PR title, body and review comments are in Czech.
+- Exception: `scripts/pr-review-comment.sh` is a 1:1 copy of the dev-template
+  bundle `pr-review` and keeps its Czech messages, so it can be updated by
+  copying the new version.
 
 ## Finishing
 

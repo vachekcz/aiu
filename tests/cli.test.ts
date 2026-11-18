@@ -65,7 +65,7 @@ afterEach(async () => {
 describe('aiu', () => {
   it('prints a hint when no accounts are configured', async () => {
     expect(await main([], deps())).toBe(0);
-    expect(stdout).toContain('No accounts yet. Add one with: aiu login <claude|chatgpt|grok> --name <label>');
+    expect(stdout).toContain('No accounts yet. Add one with: aiu login <claude|chatgpt> --name <label>');
   });
 
   it('prints the usage table by default', async () => {
@@ -112,6 +112,11 @@ describe('aiu login', () => {
     expect(await main(['login', 'claude'], deps())).toBe(2);
     expect(await main(['login', 'gemini', '--name', 'x'], deps())).toBe(2);
   });
+
+  it('rejects a provider that is not implemented and lists only implemented ones', async () => {
+    expect(await main(['login', 'grok', '--name', 'main'], deps())).toBe(2);
+    expect(stderr).toContain('Unknown provider: grok. Use one of: claude\n');
+  });
 });
 
 describe('aiu accounts / remove', () => {
@@ -127,6 +132,16 @@ describe('aiu accounts / remove', () => {
     expect(await main(['remove', 'claude/personal'], deps())).toBe(0);
     expect(accounts).toEqual([]);
     expect(credentials.has('claude/personal')).toBe(false);
+  });
+
+  it('keeps the account listed when the Keychain refuses to delete its credentials', async () => {
+    accounts = [{ provider: 'claude', label: 'personal' }];
+    const failingDelete = async () => {
+      throw new Error('Keychain delete failed');
+    };
+    expect(await main(['remove', 'claude/personal'], { ...deps(), deleteCredentials: failingDelete })).toBe(1);
+    expect(accounts).toEqual([{ provider: 'claude', label: 'personal' }]);
+    expect(stderr).toContain('Keychain delete failed');
   });
 
   it('fails for an unknown account', async () => {

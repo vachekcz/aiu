@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 
 const calls: { args: string[]; stdin: string }[] = [];
+let interactiveStderr = '';
 
 vi.mock('node:child_process', () => ({
   spawn: (_command: string, args: string[]) => {
@@ -19,7 +20,10 @@ vi.mock('node:child_process', () => ({
       },
     });
     const isLookup = args[0] === 'find-generic-password' || args[0] === 'delete-generic-password';
-    setImmediate(() => child.emit('close', isLookup ? 44 : 0));
+    setImmediate(() => {
+      if (args[0] === '-i' && interactiveStderr) child.stderr.emit('data', Buffer.from(interactiveStderr));
+      child.emit('close', isLookup ? 44 : 0);
+    });
     return child;
   },
 }));
@@ -35,5 +39,14 @@ describe('keychain store argv safety', () => {
     const allArgs = calls.flatMap((call) => call.args);
     expect(allArgs.some((arg) => arg.includes(secret) || arg.includes(encoded))).toBe(false);
     expect(calls.some((call) => call.stdin.includes(encoded))).toBe(true);
+  });
+
+  it('fails when a command inside `security -i` fails although the exit code is 0', async () => {
+    interactiveStderr = 'add-generic-password: returned -25299\n';
+    try {
+      await expect(writeSecret('claude/personal', 'value')).rejects.toThrow('Keychain write failed');
+    } finally {
+      interactiveStderr = '';
+    }
   });
 });

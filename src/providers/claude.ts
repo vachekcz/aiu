@@ -77,9 +77,10 @@ export function buildClaudeAuthorizeUrl(challenge: string, state: string): strin
   return url.toString();
 }
 
-async function requestTokens(body: Record<string, string>): Promise<Record<string, unknown>> {
+async function requestTokens(body: Record<string, string>, signal?: AbortSignal): Promise<Record<string, unknown>> {
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
+    ...(signal ? { signal } : {}),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -130,13 +131,16 @@ export const claudeProvider: Provider<ClaudeCredentials> = {
     return credentials.expiresAt - REFRESH_MARGIN_MS <= now.getTime();
   },
 
-  async refresh(credentials) {
-    const tokens = await requestTokens({
-      grant_type: 'refresh_token',
-      refresh_token: credentials.refreshToken,
-      client_id: CLIENT_ID,
-      scope: SCOPES.join(' '),
-    });
+  async refresh(credentials, signal) {
+    const tokens = await requestTokens(
+      {
+        grant_type: 'refresh_token',
+        refresh_token: credentials.refreshToken,
+        client_id: CLIENT_ID,
+        scope: SCOPES.join(' '),
+      },
+      signal,
+    );
     return credentialsFrom(tokens, credentials.refreshToken);
   },
 

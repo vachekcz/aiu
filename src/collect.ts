@@ -15,6 +15,8 @@ export interface CollectDeps {
   saveCredentials: (id: string, credentials: unknown) => Promise<void>;
   now: () => Date;
   timeoutMs: number;
+  /** Longer than timeoutMs: aborting a refresh after the server rotated the token would lose the new one. */
+  refreshTimeoutMs: number;
   lock: typeof withFileLock;
 }
 
@@ -41,7 +43,7 @@ async function fetchAccount(account: Account, provider: Provider<unknown>, deps:
       if (credentials === null) throw new MissingCredentialsError();
 
       const refresh = async () => {
-        credentials = await provider.refresh(credentials);
+        credentials = await provider.refresh(credentials, AbortSignal.timeout(deps.refreshTimeoutMs));
         await deps.saveCredentials(id, credentials);
       };
 

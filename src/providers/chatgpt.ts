@@ -87,9 +87,14 @@ export function parseChatGptUsage(json: unknown): UsageSnapshot {
   return plan ? { plan, limits } : { limits };
 }
 
-async function requestTokens(init: { body: string; contentType: string }): Promise<Record<string, unknown>> {
+async function requestTokens(init: {
+  body: string;
+  contentType: string;
+  signal?: AbortSignal;
+}): Promise<Record<string, unknown>> {
   const response = await fetch(`${ISSUER}/oauth/token`, {
     method: 'POST',
+    ...(init.signal ? { signal: init.signal } : {}),
     headers: { 'Content-Type': init.contentType },
     body: init.body,
   });
@@ -170,8 +175,9 @@ export const chatgptProvider: Provider<ChatGptCredentials> = {
     return credentials.expiresAt - REFRESH_MARGIN_MS <= now.getTime();
   },
 
-  async refresh(credentials) {
+  async refresh(credentials, signal) {
     const tokens = await requestTokens({
+      signal,
       contentType: 'application/json',
       body: JSON.stringify({
         client_id: CLIENT_ID,

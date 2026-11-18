@@ -1,11 +1,12 @@
 # aiu — AI subscription usage
 
-Shows the current usage limits of your AI subscriptions (Claude, ChatGPT/Codex, Grok) in one table.
+Shows the current usage limits of your AI subscriptions (Claude, ChatGPT/Codex) in one table.
+Grok is planned but not implemented yet.
 Uses each subscription's own login (OAuth / browser session), not API keys. macOS only.
 
 ## Install
 
-Requires Node 24+.
+Requires Node 24.2+.
 
 ```bash
 npm install

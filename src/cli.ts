@@ -10,15 +10,17 @@ import { listAccounts, removeAccount, upsertAccount } from './store/accounts.ts'
 import { deleteCredentials, loadCredentials, saveCredentials } from './store/credentials.ts';
 import { accountId, type Account, type LoginIO, type Provider, type ProviderId } from './types.ts';
 
-const PROVIDER_IDS: readonly ProviderId[] = ['claude', 'chatgpt', 'grok'];
+// Only providers that are implemented; ProviderId also lists planned ones.
+const SUPPORTED_PROVIDERS = Object.keys(defaultProviders).join('|');
 // Short names ("personal") or e-mail addresses ("ja@pvachek.cz"); must stay Keychain-safe (see store/keychain.ts).
 const LABEL_PATTERN = /^[a-z0-9][a-z0-9_.@+-]{0,63}$/;
 const FETCH_TIMEOUT_MS = 10_000;
+const REFRESH_TIMEOUT_MS = 30_000;
 
 const USAGE = `Usage:
   aiu                                        show usage of all accounts
   aiu --json                                 same, as JSON
-  aiu login <claude|chatgpt|grok> --name <label>
+  aiu login <${SUPPORTED_PROVIDERS}> --name <label>
                                              add or re-login an account
   aiu accounts                               list configured accounts
   aiu remove <provider>/<label>              remove an account and its stored login`;
@@ -73,7 +75,7 @@ const defaultDeps = (): CliDeps => ({
 async function showUsage(deps: CliDeps, json: boolean): Promise<number> {
   const accounts = await deps.listAccounts();
   if (accounts.length === 0) {
-    deps.out('No accounts yet. Add one with: aiu login <claude|chatgpt|grok> --name <label>');
+    deps.out(`No accounts yet. Add one with: aiu login <${SUPPORTED_PROVIDERS}> --name <label>`);
     return 0;
   }
   const usages = await collectUsage(accounts, {
@@ -82,6 +84,7 @@ async function showUsage(deps: CliDeps, json: boolean): Promise<number> {
     saveCredentials: deps.saveCredentials,
     now: deps.now,
     timeoutMs: FETCH_TIMEOUT_MS,
+    refreshTimeoutMs: REFRESH_TIMEOUT_MS,
     lock: withFileLock,
   });
   const now = deps.now();
@@ -90,11 +93,10 @@ async function showUsage(deps: CliDeps, json: boolean): Promise<number> {
 }
 
 async function login(deps: CliDeps, providerName: string | undefined, label: string | undefined): Promise<number> {
-  const provider = PROVIDER_IDS.includes(providerName as ProviderId)
-    ? deps.providers[providerName as ProviderId]
-    : undefined;
+  const supported = Object.keys(deps.providers);
+  const provider = providerName && supported.includes(providerName) ? deps.providers[providerName as ProviderId] : undefined;
   if (!provider) {
-    deps.err(`Unknown provider: ${providerName ?? '(none)'}. Use one of: ${PROVIDER_IDS.join(', ')}`);
+    deps.err(`Unknown provider: ${providerName ?? '(none)'}. Use one of: ${supported.join(', ')}`);
     return 2;
   }
   if (!label || !LABEL_PATTERN.test(label)) {
@@ -124,12 +126,13 @@ async function removeCommand(deps: CliDeps, id: string | undefined): Promise<num
     deps.err(USAGE);
     return 2;
   }
+  // Credentials first: if the Keychain refuses, the account stays listed and `remove` can be retried.
+  await deps.deleteCredentials(id);
   const existed = await deps.removeAccount(id);
   if (!existed) {
     deps.err(`No such account: ${id}`);
     return 1;
   }
-  await deps.deleteCredentials(id);
   deps.out(`Removed ${id}`);
   return 0;
 }

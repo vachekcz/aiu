@@ -48,6 +48,14 @@ describe('withFileLock', () => {
     expect(await withFileLock('stale', async () => 'ok', { timeoutMs: 200, staleMs: 60_000 })).toBe('ok');
   });
 
+  it('takes over a fresh lock whose holder process is gone', async () => {
+    const lockFile = join(dir, 'locks', 'orphan.lock');
+    await mkdir(join(dir, 'locks'), { recursive: true });
+    await writeFile(lockFile, '999999');
+
+    expect(await withFileLock('orphan', async () => 'ok', { timeoutMs: 200, staleMs: 60_000 })).toBe('ok');
+  });
+
   it('times out while a fresh lock is held', async () => {
     const release = withFileLock('busy', () => sleep(300));
     await sleep(20);

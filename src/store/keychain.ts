@@ -10,6 +10,8 @@ import { spawn } from 'node:child_process';
 
 const CHUNK_SIZE = 3000;
 const NOT_FOUND_EXIT_CODE = 44;
+// `security -i` exits with the status of its last command only; earlier failures show up on stderr as "<command>: returned -NNNN".
+const INTERACTIVE_FAILURE = /: returned -?\d+/;
 // Characters that need no quoting inside `security -i` double-quoted arguments.
 const SAFE_ACCOUNT = /^[A-Za-z0-9_./@+-]+$/;
 
@@ -80,7 +82,7 @@ export async function writeSecret(account: string, value: string): Promise<void>
   ].join('');
 
   const result = await runSecurity(['-i'], commands);
-  if (result.code !== 0) throw new Error(`Keychain write failed (${result.code}): ${result.stderr.trim()}`);
+  if (result.code !== 0 || INTERACTIVE_FAILURE.test(result.stderr)) throw new Error(`Keychain write failed (${result.code}): ${result.stderr.trim()}`);
   await deleteChunksFrom(account, chunks.length);
 }
 

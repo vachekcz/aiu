@@ -1,6 +1,6 @@
 import { createPkce, createState } from '../oauth/pkce.ts';
 import { severityForPercent } from '../render.ts';
-import { AuthExpiredError, type Limit, type Provider, type Severity, type UsageSnapshot } from '../types.ts';
+import { AuthExpiredError, type Limit, type LimitKind, type Provider, type Severity, type UsageSnapshot } from '../types.ts';
 import { asArray, asDate, asNumber, asRecord, asString } from './parsing.ts';
 
 // OAuth parameters of Claude Code (verified against Claude Code 2.1.327).
@@ -24,6 +24,8 @@ export interface ClaudeCredentials {
 
 const SEVERITIES: readonly Severity[] = ['normal', 'warning', 'critical'];
 
+const KINDS: Record<string, LimitKind> = { session: 'session', weekly_all: 'weekly', weekly_scoped: 'model' };
+
 function labelFor(kind: string, scope: unknown): string {
   if (kind === 'session') return '5h';
   if (kind === 'weekly_all') return 'Week (all)';
@@ -39,19 +41,21 @@ function limitFromEntry(entry: unknown): Limit | null {
   const percent = asNumber(record?.percent);
   if (!record || percent === null) return null;
   const severity = asString(record.severity);
+  const kind = KINDS[asString(record.kind) ?? ''];
   return {
     label: labelFor(asString(record.kind) ?? 'limit', record.scope),
+    ...(kind ? { kind } : {}),
     percent,
     severity: SEVERITIES.includes(severity as Severity) ? (severity as Severity) : severityForPercent(percent),
     resetsAt: asDate(record.resets_at),
   };
 }
 
-function legacyLimit(label: string, window: unknown): Limit | null {
+function legacyLimit(label: string, kind: LimitKind, window: unknown): Limit | null {
   const record = asRecord(window);
   const percent = asNumber(record?.utilization);
   if (percent === null) return null;
-  return { label, percent, severity: severityForPercent(percent), resetsAt: asDate(record?.resets_at) };
+  return { label, kind, percent, severity: severityForPercent(percent), resetsAt: asDate(record?.resets_at) };
 }
 
 export function parseClaudeUsage(json: unknown): UsageSnapshot {
@@ -60,7 +64,7 @@ export function parseClaudeUsage(json: unknown): UsageSnapshot {
   if (Array.isArray(root.limits)) {
     return { limits: asArray(root.limits).map(limitFromEntry).filter((limit) => limit !== null) };
   }
-  const legacy = [legacyLimit('5h', root.five_hour), legacyLimit('Week (all)', root.seven_day)];
+  const legacy = [legacyLimit('5h', 'session', root.five_hour), legacyLimit('Week (all)', 'weekly', root.seven_day)];
   return { limits: legacy.filter((limit) => limit !== null) };
 }
 

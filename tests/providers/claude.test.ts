@@ -27,9 +27,9 @@ afterEach(() => {
 describe('parseClaudeUsage', () => {
   it('maps the limits array to labelled limits', () => {
     expect(parseClaudeUsage(fixture).limits).toEqual([
-      { label: '5h', percent: 80, severity: 'warning', resetsAt: new Date('2026-11-18T23:20:00Z') },
-      { label: 'Week (all)', percent: 70, severity: 'normal', resetsAt: new Date('2026-11-20T18:00:00Z') },
-      { label: 'Week (Fable)', percent: 100, severity: 'critical', resetsAt: new Date('2026-11-20T18:00:00Z') },
+      { label: '5h', kind: 'session', percent: 80, severity: 'warning', resetsAt: new Date('2026-11-18T23:20:00Z') },
+      { label: 'Week (all)', kind: 'weekly', percent: 70, severity: 'normal', resetsAt: new Date('2026-11-20T18:00:00Z') },
+      { label: 'Week (Fable)', kind: 'model', percent: 100, severity: 'critical', resetsAt: new Date('2026-11-20T18:00:00Z') },
     ]);
   });
 
@@ -45,9 +45,9 @@ describe('parseClaudeUsage', () => {
 
   it('falls back to legacy five_hour / seven_day fields without a limits array', () => {
     const { limits } = parseClaudeUsage({ five_hour: fixture.five_hour, seven_day: fixture.seven_day, limits: null });
-    expect(limits.map((limit) => [limit.label, limit.percent])).toEqual([
-      ['5h', 80],
-      ['Week (all)', 70],
+    expect(limits.map((limit) => [limit.label, limit.kind, limit.percent])).toEqual([
+      ['5h', 'session', 80],
+      ['Week (all)', 'weekly', 70],
     ]);
   });
 

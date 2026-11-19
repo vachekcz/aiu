@@ -87,7 +87,7 @@ describe('aiu', () => {
     expect(JSON.parse(stdout)).toEqual({
       generatedAt: NOW.toISOString(),
       accounts: [],
-      recommendation: { providers: [], models: [] },
+      recommendation: { providers: [], models: [], plan: [] },
     });
   });
 

@@ -41,9 +41,39 @@ export interface ModelAdvice {
   availableAccountId?: string;
 }
 
+/** One account in the plan: burn its weekly allowance before `resetsAt`. */
+export interface PlanStep {
+  accountId: string;
+  /** Weekly % left, floored only when rendered. */
+  weeklyLeft: number;
+  /** Weekly reset: the deadline for this step. */
+  resetsAt: Date | null;
+  /** Labels of this account's model limits that still have room, e.g. ["Week (Fable)"]. */
+  premium: string[];
+  /** Set only when the 5h window is used up: its label and reset. */
+  sessionBlocked?: { label: string; resetsAt: Date | null };
+}
+
+/** A model limit used up on one account, and when it comes back there. */
+export interface ModelBack {
+  label: string;
+  accountId: string;
+  at: Date | null;
+}
+
+/** Accounts of one provider in the order to burn them (earliest weekly reset first). */
+export interface ProviderPlan {
+  provider: ProviderId;
+  steps: PlanStep[];
+  /** Model limits used up on an account of this provider, sorted by `at`, unknown last. */
+  back: ModelBack[];
+}
+
 export interface Advice {
   providers: ProviderAdvice[];
   models: ModelAdvice[];
+  /** Same provider order as `providers`. */
+  plan: ProviderPlan[];
 }
 
 const SESSION_ROOM = 10;
@@ -79,8 +109,8 @@ function urgency(gate: Limit | undefined, now: Date): number {
 }
 
 /** Earlier reset first; an unknown reset sorts after every known one. */
-function byDeadline(first: Limit, second: Limit): number {
-  const time = (limit: Limit) => limit.resetsAt?.getTime() ?? Number.POSITIVE_INFINITY;
+function byDeadline(first: Pick<Limit, 'resetsAt'>, second: Pick<Limit, 'resetsAt'>): number {
+  const time = (limit: Pick<Limit, 'resetsAt'>) => limit.resetsAt?.getTime() ?? Number.POSITIVE_INFINITY;
   const difference = time(first) - time(second);
   return Number.isNaN(difference) ? 0 : difference;
 }
@@ -146,6 +176,34 @@ function adviseModels(provider: ProviderId, usages: OkUsage[]): ModelAdvice[] {
   });
 }
 
+function planProvider(provider: ProviderId, usages: OkUsage[]): ProviderPlan {
+  const steps = usages
+    .flatMap((usage): PlanStep[] => {
+      const weekly = findKind(usage, 'weekly');
+      if (!weekly || weekly.percent === null || isUsedUp(weekly)) return [];
+      const session = findKind(usage, 'session');
+      const premium = usage.limits.filter((limit) => limit.kind === 'model' && !isUsedUp(limit)).map((limit) => limit.label);
+      return [
+        {
+          accountId: accountId(usage.account),
+          weeklyLeft: left(weekly)!,
+          resetsAt: weekly.resetsAt,
+          premium,
+          ...(session && isUsedUp(session) ? { sessionBlocked: { label: session.label, resetsAt: session.resetsAt } } : {}),
+        },
+      ];
+    })
+    .sort(byDeadline);
+  const back = usages
+    .flatMap((usage) =>
+      usage.limits
+        .filter((limit) => limit.kind === 'model' && isUsedUp(limit))
+        .map((limit): ModelBack => ({ label: limit.label, accountId: accountId(usage.account), at: limit.resetsAt })),
+    )
+    .sort((first, second) => byDeadline({ resetsAt: first.at }, { resetsAt: second.at }));
+  return { provider, steps, back };
+}
+
 export function recommend(usages: AccountUsage[], now: Date): Advice {
   const okUsages = usages.filter((usage): usage is OkUsage => usage.status === 'ok');
   const providers = [...new Set(okUsages.map((usage) => usage.account.provider))];
@@ -153,5 +211,6 @@ export function recommend(usages: AccountUsage[], now: Date): Advice {
   return {
     providers: providers.map((provider) => adviseProvider(provider, byProvider(provider), now)),
     models: providers.flatMap((provider) => adviseModels(provider, byProvider(provider))),
+    plan: providers.map((provider) => planProvider(provider, byProvider(provider))),
   };
 }

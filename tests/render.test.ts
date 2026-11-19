@@ -206,6 +206,13 @@ describe('renderJson', () => {
             availableAccountId: 'claude/personal',
           },
         ],
+        plan: [
+          {
+            provider: 'claude',
+            steps: [],
+            back: [{ label: 'Week (Fable)', accountId: 'claude/personal', at: '2026-11-20T18:00:00.000Z' }],
+          },
+        ],
       },
     });
   });

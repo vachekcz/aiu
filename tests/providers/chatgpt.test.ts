@@ -38,9 +38,10 @@ describe('parseChatGptUsage', () => {
     expect(parseChatGptUsage(fixture)).toEqual({
       plan: 'pro',
       limits: [
-        { label: 'Week', percent: 100, severity: 'critical', resetsAt: new Date(1795205991 * 1000) },
+        { label: 'Week', kind: 'weekly', percent: 100, severity: 'critical', resetsAt: new Date(1795205991 * 1000) },
         {
           label: 'gpt-6-astra',
+          kind: 'model',
           percent: null,
           severity: 'critical',
           detail: 'blocked',
@@ -57,9 +58,9 @@ describe('parseChatGptUsage', () => {
         secondary_window: { used_percent: 20, limit_window_seconds: 18000, reset_at: 1 },
       },
     });
-    expect(limits.map((limit) => [limit.label, limit.percent])).toEqual([
-      ['5h', 20],
-      ['Week', 10],
+    expect(limits.map((limit) => [limit.label, limit.kind, limit.percent])).toEqual([
+      ['5h', 'session', 20],
+      ['Week', 'weekly', 10],
     ]);
   });
 
@@ -72,7 +73,7 @@ describe('parseChatGptUsage', () => {
 
   it('marks available models as normal without a reset', () => {
     const { limits } = parseChatGptUsage({ model_usage: { 'gpt-6': { available: true } } });
-    expect(limits).toEqual([{ label: 'gpt-6', percent: null, severity: 'normal', detail: 'available', resetsAt: null }]);
+    expect(limits).toEqual([{ label: 'gpt-6', kind: 'model', percent: null, severity: 'normal', detail: 'available', resetsAt: null }]);
   });
 
   it('renders additional rate limits and skips entries of unexpected shape', () => {
@@ -86,7 +87,7 @@ describe('parseChatGptUsage', () => {
         { limit_name: 'No windows' },
       ],
     });
-    expect(limits.map((limit) => limit.label)).toEqual(['GPT-6 Pro Week']);
+    expect(limits.map((limit) => [limit.label, limit.kind])).toEqual([['GPT-6 Pro Week', 'model']]);
   });
 
   it('tolerates empty and null payloads', () => {

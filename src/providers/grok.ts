@@ -160,13 +160,13 @@ export function hasActiveSubscription(json: unknown): boolean {
 }
 
 /**
- * grok.com reports its own errors as JSON ({"code":16,...}); an HTML error page comes from Cloudflare
- * (challenge or WAF block), which a new cookie would not fix.
+ * grok.com reports its own errors as JSON ({"code":16,...}); an HTML 4xx page comes from Cloudflare
+ * (challenge or WAF block), which a new cookie would not fix. An HTML 5xx page is an outage, not a block.
  */
 function checkResponse(response: Response, what: string): void {
   if (response.ok) return;
   const contentType = response.headers.get('content-type') ?? '';
-  if (contentType.includes('text/html') || response.headers.has('cf-mitigated')) {
+  if ((contentType.includes('text/html') && response.status < 500) || response.headers.has('cf-mitigated')) {
     throw new BlockedError(`Grok ${what} blocked by Cloudflare (HTTP ${response.status})`);
   }
   if (response.status === 401 || response.status === 403) throw new AuthExpiredError('Grok rejected the cookie');

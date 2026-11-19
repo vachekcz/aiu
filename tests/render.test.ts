@@ -293,6 +293,8 @@ describe('renderRecommendation', () => {
       limits: [{ label: '2h', kind: 'session', percent: 25, resetsAt: null, severity: 'normal', detail: '15/20 left' }],
     };
     expect(renderRecommendation([grok], now, { color: false })).toContain('  Grok  use grok/free: 2h window 75 % free');
+    const noWindow: AccountUsage = { ...grok, limits: [{ ...grok.limits[0]!, label: 'Queries' }] };
+    expect(renderRecommendation([noWindow], now, { color: false })).toContain('use grok/free: Queries 75 % free');
   });
 
   it('lists where a model is still available', () => {

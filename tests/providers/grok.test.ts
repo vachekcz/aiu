@@ -219,9 +219,14 @@ describe('grokProvider.fetchUsage', () => {
     await expect(grokProvider.fetchUsage(CREDENTIALS, signal)).rejects.toBeInstanceOf(BlockedError);
   });
 
-  it('reports other HTTP errors with their status', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({}, 502));
-    await expect(grokProvider.fetchUsage(CREDENTIALS, signal)).rejects.toThrow('Grok subscriptions HTTP 502');
+  it.each([
+    ['a JSON error', jsonResponse({}, 502)],
+    ['a Cloudflare outage page', htmlResponse('<title>grok.com | 502: Bad gateway</title>', 502)],
+  ])('reports %s with its status, not as blocked', async (_name, response) => {
+    fetchMock.mockResolvedValueOnce(response);
+    const error = await grokProvider.fetchUsage(CREDENTIALS, signal).catch((caught: unknown) => caught);
+    expect(error).not.toBeInstanceOf(BlockedError);
+    expect(error).toHaveProperty('message', 'Grok subscriptions HTTP 502');
   });
 });
 

@@ -128,6 +128,9 @@ function whenFree(at: Date | null, now: Date): string {
   return at ? `${relative(at, now)} (${formatReset(at)})` : 'at an unknown time';
 }
 
+/** "5h window" for a window length, else the label alone (e.g. Grok "Queries" without a known window). */
+const sessionName = (label = '5h'): string => (/^\d+[mhd]$/.test(label) ? `${label} window` : label);
+
 function providerLine(entry: Advice['providers'][number], now: Date): string {
   if (entry.noData) return 'no 5h or weekly limit data to recommend from';
   if (entry.accountId === null) {
@@ -138,7 +141,7 @@ function providerLine(entry: Advice['providers'][number], now: Date): string {
     entry.weeklyLeft !== undefined
       ? `${Math.floor(entry.weeklyLeft)} % of its weekly limit lapses ${entry.weeklyResetsAt ? relative(entry.weeklyResetsAt, now) : 'at an unknown time'}`
       : null,
-    entry.sessionLeft !== undefined ? `${entry.sessionLabel ?? '5h'} window ${Math.floor(entry.sessionLeft)} % free` : null,
+    entry.sessionLeft !== undefined ? `${sessionName(entry.sessionLabel)} ${Math.floor(entry.sessionLeft)} % free` : null,
   ].filter((detail) => detail !== null);
   return details.length > 0 ? `use ${entry.accountId}: ${details.join('; ')}` : `use ${entry.accountId}`;
 }

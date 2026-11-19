@@ -12,6 +12,9 @@ npm install
 npm link        # puts `aiu` on your PATH
 ```
 
+`aiu` runs straight from this clone, so `git pull` is the whole update; the post-merge hook (see
+[Development](#development)) runs `npm ci` when the dependencies changed.
+
 ## Usage
 
 ```bash
@@ -59,6 +62,9 @@ npm test
 npm run typecheck
 ```
 
-`npm ci` wires a pre-push hook that runs the typecheck and tests before a push
-that changes code (`HOOK_SKIP=1 git push` skips it). CI runs the same checks on
-every PR that changes code.
+`npm ci` wires two Git hooks (`HOOK_SKIP=1` skips either):
+
+- pre-push runs the typecheck and tests before a push that changes code. CI runs the same checks on
+  every PR that changes code.
+- post-merge runs `npm ci` after a `git pull` that changes `package-lock.json`, so the linked `aiu`
+  keeps working after an update.

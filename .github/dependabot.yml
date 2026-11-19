@@ -11,6 +11,12 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 30
+    # Project adaptation (not in the dev-template partial): @types/node follows
+    # the Node major in .nvmrc, so it never offers APIs the runtime lacks. Bump
+    # its major by hand together with .nvmrc and "engines".
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       # Security fixes ride their own alert-driven path, so the monthly
       # schedule never holds them back. The group only bundles them into one PR.

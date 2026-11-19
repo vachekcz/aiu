@@ -1,0 +1,6 @@
+{
+  "subscriptions": [
+    { "status": "SUBSCRIPTION_STATUS_EXPIRED", "unknownField": 1 },
+    { "status": "SUBSCRIPTION_STATUS_ACTIVE" }
+  ]
+}

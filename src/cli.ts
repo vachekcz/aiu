@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
+import { Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import { collectUsage, lockName } from './collect.ts';
 import { withFileLock } from './lock.ts';
@@ -10,7 +11,7 @@ import { listAccounts, removeAccount, upsertAccount } from './store/accounts.ts'
 import { deleteCredentials, loadCredentials, saveCredentials } from './store/credentials.ts';
 import { accountId, type Account, type LoginIO, type Provider, type ProviderId } from './types.ts';
 
-// Only providers that are implemented; ProviderId also lists planned ones.
+// Only providers that are implemented.
 const SUPPORTED_PROVIDERS = Object.keys(defaultProviders).join('|');
 // Short names ("personal") or e-mail addresses ("ja@pvachek.cz"); must stay Keychain-safe (see store/keychain.ts).
 const LABEL_PATTERN = /^[a-z0-9][a-z0-9_.@+-]{0,63}$/;
@@ -43,12 +44,25 @@ export interface CliDeps {
 
 const terminalIO: LoginIO = {
   print: (message) => process.stderr.write(`${message}\n`),
-  prompt: async (question) => {
-    const readline = createInterface({ input: process.stdin, output: process.stderr });
+  prompt: async (question, options) => {
+    if (!options?.secret) {
+      const readline = createInterface({ input: process.stdin, output: process.stderr });
+      try {
+        return await readline.question(question);
+      } finally {
+        readline.close();
+      }
+    }
+    // Secret answers (e.g. a session cookie) must not stay in the terminal scrollback: readline echoes
+    // into a stream that drops everything, and only the question goes to the terminal.
+    process.stderr.write(question);
+    const muted = new Writable({ write: (_chunk, _encoding, done) => done() });
+    const readline = createInterface({ input: process.stdin, output: muted, terminal: Boolean(process.stdin.isTTY) });
     try {
-      return await readline.question(question);
+      return await readline.question('');
     } finally {
       readline.close();
+      process.stderr.write('\n');
     }
   },
   openUrl: (url) =>

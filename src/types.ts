@@ -37,7 +37,8 @@ export type AccountUsage =
 
 export interface LoginIO {
   print(message: string): void;
-  prompt(question: string): Promise<string>;
+  /** With secret, the typed or pasted answer is not echoed to the terminal. */
+  prompt(question: string, options?: { secret?: boolean }): Promise<string>;
   openUrl(url: string): Promise<void>;
 }
 

@@ -25,7 +25,6 @@ CI (`.github/workflows/ci.yml`) runs the typecheck on Linux and `npm test` on
 macOS; branch protection on `main` requires its single `CI Passed` check. The
 pre-push hook (`.githooks/pre-push`) is a fast subset of CI: keep every step
 of the hook in CI too, and the docs-only patterns of both in line.
-`HOOK_SKIP=1 git push` skips it.
 
 ## Rules
 

@@ -39,16 +39,16 @@ if hook_worktree_differs; then
   echo "⚠ Checks run on a working tree that differs from the pushed content."
 fi
 
-if [ ! -d "$ROOT/node_modules" ]; then
-  echo "❌ node_modules is missing — run 'npm ci' and push again."
-  exit 1
-fi
-
 # Docs-only push: nothing to check (the repo has no docs check). Same patterns
 # as the `changes` job in CI.
 if hook_docs_only 'docs/*' '*.md' 'LICENSE' '.github/ISSUE_TEMPLATE/*' '.github/pull_request_template.md'; then
   echo "✅ Docs only — pushing."
   exit 0
+fi
+
+if [ ! -d "$ROOT/node_modules" ]; then
+  echo "❌ node_modules is missing — run 'npm ci' and push again."
+  exit 1
 fi
 
 hook_step "Typecheck" -- npm run typecheck --silent

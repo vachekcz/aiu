@@ -11,8 +11,9 @@
 name: CI
 
 on:
-  # Every job is PR-only, so a push to main runs nothing, but it makes
-  # `CI Passed` report (as skipped) on main's HEAD. The branch-protection audit
+  # Every job is PR-only, so a push to main runs nothing, but a push that
+  # changes code makes `CI Passed` report (as skipped) on main's HEAD; after a
+  # docs-only merge it does not report there. The branch-protection audit
   # (dev-template github-repo-settings) checks that, and GitHub keeps the
   # required check bound to the Actions app only while it reports recently.
   push:

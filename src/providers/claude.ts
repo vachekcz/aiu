@@ -1,6 +1,6 @@
 import { createPkce, createState } from '../oauth/pkce.ts';
 import { severityForPercent } from '../render.ts';
-import { AuthExpiredError, type Limit, type Provider, type Severity, type UsageSnapshot } from '../types.ts';
+import { AuthExpiredError, type Limit, type LimitKind, type Provider, type Severity, type UsageSnapshot } from '../types.ts';
 import { asArray, asDate, asNumber, asRecord, asString } from './parsing.ts';
 
 // OAuth parameters of Claude Code (verified against Claude Code 2.1.327).
@@ -24,14 +24,29 @@ export interface ClaudeCredentials {
 
 const SEVERITIES: readonly Severity[] = ['normal', 'warning', 'critical'];
 
+const KINDS: Record<string, LimitKind> = { session: 'session', weekly_all: 'weekly', weekly_scoped: 'model' };
+
+const modelName = (scope: unknown): string | null =>
+  asString(asRecord(asRecord(asRecord(scope)?.model))?.display_name);
+
+/**
+ * Fallback for kinds this version does not know: the coarser group still says what the limit gates.
+ * A weekly limit scoped to something other than a model (e.g. a surface) stays unclassified.
+ */
+function kindFromGroup(group: string | null, scope: unknown): LimitKind | undefined {
+  if (group === 'session') return 'session';
+  if (group !== 'weekly') return undefined;
+  if (!asRecord(scope)) return 'weekly';
+  return modelName(scope) ? 'model' : undefined;
+}
+
 function labelFor(kind: string, scope: unknown): string {
   if (kind === 'session') return '5h';
   if (kind === 'weekly_all') return 'Week (all)';
-  if (kind === 'weekly_scoped') {
-    const model = asString(asRecord(asRecord(asRecord(scope)?.model))?.display_name);
-    return model ? `Week (${model})` : 'Week (scoped)';
-  }
-  return kind;
+  const model = modelName(scope);
+  if (kind === 'weekly_scoped') return model ? `Week (${model})` : 'Week (scoped)';
+  // Unknown kind scoped to a model: name it by the model, so two such models do not share one label.
+  return model ? `Week (${model})` : kind;
 }
 
 function limitFromEntry(entry: unknown): Limit | null {
@@ -39,19 +54,22 @@ function limitFromEntry(entry: unknown): Limit | null {
   const percent = asNumber(record?.percent);
   if (!record || percent === null) return null;
   const severity = asString(record.severity);
+  const rawKind = asString(record.kind) ?? '';
+  const kind = Object.hasOwn(KINDS, rawKind) ? KINDS[rawKind] : kindFromGroup(asString(record.group), record.scope);
   return {
     label: labelFor(asString(record.kind) ?? 'limit', record.scope),
+    ...(kind ? { kind } : {}),
     percent,
     severity: SEVERITIES.includes(severity as Severity) ? (severity as Severity) : severityForPercent(percent),
     resetsAt: asDate(record.resets_at),
   };
 }
 
-function legacyLimit(label: string, window: unknown): Limit | null {
+function legacyLimit(label: string, kind: LimitKind, window: unknown): Limit | null {
   const record = asRecord(window);
   const percent = asNumber(record?.utilization);
   if (percent === null) return null;
-  return { label, percent, severity: severityForPercent(percent), resetsAt: asDate(record?.resets_at) };
+  return { label, kind, percent, severity: severityForPercent(percent), resetsAt: asDate(record?.resets_at) };
 }
 
 export function parseClaudeUsage(json: unknown): UsageSnapshot {
@@ -60,7 +78,7 @@ export function parseClaudeUsage(json: unknown): UsageSnapshot {
   if (Array.isArray(root.limits)) {
     return { limits: asArray(root.limits).map(limitFromEntry).filter((limit) => limit !== null) };
   }
-  const legacy = [legacyLimit('5h', root.five_hour), legacyLimit('Week (all)', root.seven_day)];
+  const legacy = [legacyLimit('5h', 'session', root.five_hour), legacyLimit('Week (all)', 'weekly', root.seven_day)];
   return { limits: legacy.filter((limit) => limit !== null) };
 }
 

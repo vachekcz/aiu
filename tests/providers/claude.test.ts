@@ -27,15 +27,34 @@ afterEach(() => {
 describe('parseClaudeUsage', () => {
   it('maps the limits array to labelled limits', () => {
     expect(parseClaudeUsage(fixture).limits).toEqual([
-      { label: '5h', percent: 80, severity: 'warning', resetsAt: new Date('2026-11-18T23:20:00Z') },
-      { label: 'Week (all)', percent: 70, severity: 'normal', resetsAt: new Date('2026-11-20T18:00:00Z') },
-      { label: 'Week (Fable)', percent: 100, severity: 'critical', resetsAt: new Date('2026-11-20T18:00:00Z') },
+      { label: '5h', kind: 'session', percent: 80, severity: 'warning', resetsAt: new Date('2026-11-18T23:20:00Z') },
+      { label: 'Week (all)', kind: 'weekly', percent: 70, severity: 'normal', resetsAt: new Date('2026-11-20T18:00:00Z') },
+      { label: 'Week (Fable)', kind: 'model', percent: 100, severity: 'critical', resetsAt: new Date('2026-11-20T18:00:00Z') },
     ]);
   });
 
   it('labels unknown kinds by kind and derives severity from percent when missing', () => {
     const { limits } = parseClaudeUsage({ limits: [{ kind: 'monthly_x', percent: 85 }] });
     expect(limits).toEqual([{ label: 'monthly_x', percent: 85, severity: 'critical', resetsAt: null }]);
+  });
+
+  it('falls back to the group when the kind is unknown', () => {
+    const { limits } = parseClaudeUsage({
+      limits: [
+        { kind: 'five_hour', group: 'session', percent: 10 },
+        { kind: 'weekly', group: 'weekly', percent: 20, scope: null },
+        { kind: 'weekly_model', group: 'weekly', percent: 30, scope: { model: { display_name: 'Fable' } } },
+        { kind: 'weekly_model', group: 'weekly', percent: 40, scope: { model: { display_name: 'Opus' } } },
+        { kind: 'weekly_surface', group: 'weekly', percent: 50, scope: { surface: 'web' } },
+      ],
+    });
+    expect(limits.map((limit) => [limit.label, limit.kind])).toEqual([
+      ['five_hour', 'session'],
+      ['weekly', 'weekly'],
+      ['Week (Fable)', 'model'],
+      ['Week (Opus)', 'model'],
+      ['weekly_surface', undefined],
+    ]);
   });
 
   it('ignores an unknown severity value', () => {
@@ -45,9 +64,9 @@ describe('parseClaudeUsage', () => {
 
   it('falls back to legacy five_hour / seven_day fields without a limits array', () => {
     const { limits } = parseClaudeUsage({ five_hour: fixture.five_hour, seven_day: fixture.seven_day, limits: null });
-    expect(limits.map((limit) => [limit.label, limit.percent])).toEqual([
-      ['5h', 80],
-      ['Week (all)', 70],
+    expect(limits.map((limit) => [limit.label, limit.kind, limit.percent])).toEqual([
+      ['5h', 'session', 80],
+      ['Week (all)', 'weekly', 70],
     ]);
   });
 

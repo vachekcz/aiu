@@ -70,7 +70,7 @@ describe('buildClaudeAuthorizeUrl', () => {
       client_id: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
       response_type: 'code',
       redirect_uri: 'https://platform.claude.com/oauth/code/callback',
-      scope: 'user:profile user:inference',
+      scope: 'user:profile',
       code_challenge: 'ch',
       code_challenge_method: 'S256',
       state: 'st',
@@ -148,8 +148,9 @@ describe('claudeProvider.refresh', () => {
       grant_type: 'refresh_token',
       refresh_token: 'old-rt',
       client_id: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
-      scope: 'user:profile user:inference',
     });
+    // No scope: the server then keeps what the login granted. Asking for more fails with invalid_scope.
+    expect(body).not.toHaveProperty('scope');
     expect(refreshed).toEqual({ accessToken: 'new', refreshToken: 'old-rt', expiresAt: NOW.getTime() + 3600_000 });
   });
 

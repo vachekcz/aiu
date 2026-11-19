@@ -8,7 +8,9 @@ const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const AUTHORIZE_URL = 'https://claude.com/cai/oauth/authorize';
 const TOKEN_URL = 'https://platform.claude.com/v1/oauth/token';
 const REDIRECT_URI = 'https://platform.claude.com/oauth/code/callback';
-const SCOPES = ['user:profile', 'user:inference'];
+// The usage endpoint needs only user:profile. Requesting user:inference would let the token run
+// models and makes claude.ai require a personal Pro/Max/Ultra plan before it grants the login.
+const SCOPES = ['user:profile'];
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 const OAUTH_BETA = 'oauth-2025-04-20';
 const REFRESH_MARGIN_MS = 60_000;
@@ -134,12 +136,9 @@ export const claudeProvider: Provider<ClaudeCredentials> = {
 
   async refresh(credentials, signal) {
     const tokens = await requestTokens(
-      {
-        grant_type: 'refresh_token',
-        refresh_token: credentials.refreshToken,
-        client_id: CLIENT_ID,
-        scope: SCOPES.join(' '),
-      },
+      // No scope: the server keeps what the login granted, so a later change of SCOPES
+      // cannot break existing logins with invalid_scope.
+      { grant_type: 'refresh_token', refresh_token: credentials.refreshToken, client_id: CLIENT_ID },
       signal,
     );
     return credentialsFrom(tokens, credentials.refreshToken);

@@ -373,6 +373,17 @@ describe('renderPlan', () => {
     ]);
   });
 
+  it('starts with the recommended account and says "now" only when one is usable', () => {
+    const roomy = renderPlan([account('low-room', [session(95, 1), week(50, 10)]), account('roomy', [session(0, 1), week(20, 40)])], now, {
+      color: false,
+    });
+    expect(roomy).toContain('now → Fri 15:00');
+    expect(roomy.indexOf('claude/roomy')).toBeLessThan(roomy.indexOf('claude/low-room'));
+    const blocked = renderPlan([account('x', [session(100, 1), week(50, 10)])], now, { color: false });
+    expect(blocked).not.toContain('now');
+    expect(blocked).toContain('  Claude      → Thu 09:00');
+  });
+
   it('renders an unknown weekly reset', () => {
     const output = renderPlan([account('x', [{ ...week(10, 0), resetsAt: null }])], now, { color: false });
     expect(output).toContain('now → unknown');

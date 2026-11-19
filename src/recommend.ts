@@ -208,9 +208,20 @@ export function recommend(usages: AccountUsage[], now: Date): Advice {
   const okUsages = usages.filter((usage): usage is OkUsage => usage.status === 'ok');
   const providers = [...new Set(okUsages.map((usage) => usage.account.provider))];
   const byProvider = (provider: ProviderId) => okUsages.filter((usage) => usage.account.provider === provider);
+  const advice = providers.map((provider) => adviseProvider(provider, byProvider(provider), now));
   return {
-    providers: providers.map((provider) => adviseProvider(provider, byProvider(provider), now)),
+    providers: advice,
     models: providers.flatMap((provider) => adviseModels(provider, byProvider(provider))),
-    plan: providers.map((provider) => planProvider(provider, byProvider(provider))),
+    plan: providers.map((provider, index) => recommendedFirst(planProvider(provider, byProvider(provider)), advice[index]!.accountId)),
   };
+}
+
+/**
+ * The recommended account goes first, so the plan and `Recommendation` never disagree on what to use now.
+ * It differs from the earliest deadline only when that account has (almost) no room in its 5h window.
+ */
+function recommendedFirst(plan: ProviderPlan, recommended: string | null): ProviderPlan {
+  const index = plan.steps.findIndex((step) => step.accountId === recommended);
+  if (index <= 0) return plan;
+  return { ...plan, steps: [plan.steps[index]!, ...plan.steps.slice(0, index), ...plan.steps.slice(index + 1)] };
 }

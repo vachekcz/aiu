@@ -191,9 +191,10 @@ function stepNote(step: PlanStep, now: Date): string {
   return notes.filter((note) => note !== null).join(' · ');
 }
 
-function stepLines(steps: PlanStep[], now: Date): string[] {
-  const cells = steps.map((step, index) => ({
-    lead: index === 0 ? 'now →' : '    →',
+/** `recommended` is the account `Recommendation` names; only its row says "now". */
+function stepLines(steps: PlanStep[], recommended: string | null, now: Date): string[] {
+  const cells = steps.map((step) => ({
+    lead: step.accountId === recommended ? 'now →' : '    →',
     deadline: step.resetsAt ? formatReset(step.resetsAt) : 'unknown',
     countdown: step.resetsAt ? `(${formatCountdown(step.resetsAt, now)})` : '',
     account: step.accountId,
@@ -233,7 +234,10 @@ export function renderPlan(usages: AccountUsage[], now: Date, options: { color: 
   const advice = recommend(usages, now);
   const blocks = advice.plan.flatMap((plan) => {
     const provider = advice.providers.find((entry) => entry.provider === plan.provider);
-    if (plan.steps.length > 0) return [{ name: PROVIDER_NAMES[plan.provider], lines: [...stepLines(plan.steps, now), ...backLines(plan.back)] }];
+    if (plan.steps.length > 0) {
+      const lines = [...stepLines(plan.steps, provider?.accountId ?? null, now), ...backLines(plan.back)];
+      return [{ name: PROVIDER_NAMES[plan.provider], lines }];
+    }
     if (!provider || provider.accountId !== null || provider.noData) return [];
     const where = provider.availableAccountId ? ` on ${provider.availableAccountId}` : '';
     return [{ name: PROVIDER_NAMES[plan.provider], lines: [`nothing usable · back ${whenFree(provider.availableAt ?? null, now)}${where}`] }];

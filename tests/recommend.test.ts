@@ -236,6 +236,12 @@ describe('plan', () => {
     expect(advice.plan[0]?.steps.map((step) => step.accountId)).toEqual(['claude/x']);
   });
 
+  it('moves the recommended account first when the earliest deadline has no room in its 5h window', () => {
+    const advice = recommend([claude('low-room', 95, 50, 10), claude('roomy', 0, 20, 40)], now);
+    expect(advice.providers[0]?.accountId).toBe('claude/roomy');
+    expect(advice.plan[0]?.steps.map((step) => step.accountId)).toEqual(['claude/roomy', 'claude/low-room']);
+  });
+
   it('starts with the recommended account when it has room', () => {
     const advice = recommend([claude('a', 0, 40, 10), claude('b', 0, 95, 2), claude('c', 50, 0, 100)], now);
     expect(advice.plan[0]?.steps[0]?.accountId).toBe(advice.providers[0]?.accountId);

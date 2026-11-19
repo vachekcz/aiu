@@ -68,8 +68,10 @@ Rules:
 - An account blocked only by its 5h window is still in the plan (its weekly
   capacity still lapses); its row says when the 5h window frees up. Builder's
   call on the exact wording.
-- `Recommendation`'s `use …` = the first plan row whose 5h window has at least
-  `SESSION_ROOM` % left; if none has, the first plan row.
+- `Recommendation` keeps its own pick (deadline order, but accounts with less
+  than `SESSION_ROOM` % of their 5h window left come last). That account moves
+  to the top of the plan and is the only row marked `now →`; when nothing is
+  usable now, no row says `now`.
 - "Back" line: premium limits used up on some accounts, with their resets.
 - `--json` gets `recommendation.plan` with the same rows.
 

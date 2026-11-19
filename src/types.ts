@@ -2,8 +2,15 @@ export type ProviderId = 'claude' | 'chatgpt' | 'grok';
 
 export type Severity = 'normal' | 'warning' | 'critical';
 
+/**
+ * What a limit gates: the short rolling window (Claude 5h), the weekly allowance, or one model only.
+ * The recommendation needs it; anything else stays unset.
+ */
+export type LimitKind = 'session' | 'weekly' | 'model';
+
 export interface Limit {
   label: string;
+  kind?: LimitKind;
   percent: number | null;
   resetsAt: Date | null;
   severity: Severity;

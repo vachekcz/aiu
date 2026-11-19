@@ -84,7 +84,11 @@ describe('aiu', () => {
 
   it('prints valid JSON with --json when no accounts are configured', async () => {
     expect(await main(['--json'], deps())).toBe(0);
-    expect(JSON.parse(stdout)).toEqual({ generatedAt: NOW.toISOString(), accounts: [] });
+    expect(JSON.parse(stdout)).toEqual({
+      generatedAt: NOW.toISOString(),
+      accounts: [],
+      recommendation: { providers: [], models: [] },
+    });
   });
 
   it('prints JSON with --json', async () => {

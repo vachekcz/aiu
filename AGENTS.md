@@ -7,8 +7,7 @@ Instructions for coding agents working in this repo. User-facing docs live in
 ## Project
 
 `aiu` is a macOS CLI (TypeScript, Node 24.2+, run directly from `src/cli.ts`)
-that shows the usage limits of Claude and ChatGPT/Codex subscriptions (Grok is
-planned; `ProviderId` already lists it, `src/providers/index.ts` does not). Each
+that shows the usage limits of Claude, ChatGPT/Codex and Grok subscriptions. Each
 provider in `src/providers/` turns its unofficial usage endpoint into the
 normalised `Limit` from `src/types.ts`; `src/render.ts` prints a table or JSON.
 

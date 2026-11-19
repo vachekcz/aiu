@@ -71,7 +71,7 @@ afterEach(async () => {
 describe('aiu', () => {
   it('prints a hint when no accounts are configured', async () => {
     expect(await main([], deps())).toBe(0);
-    expect(stdout).toContain('No accounts yet. Add one with: aiu login <claude|chatgpt> --name <label>');
+    expect(stdout).toContain('No accounts yet. Add one with: aiu login <claude|chatgpt|grok> --name <label>');
   });
 
   it('prints the usage table by default', async () => {

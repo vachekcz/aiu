@@ -1,7 +1,6 @@
 # aiu — AI subscription usage
 
-Shows the current usage limits of your AI subscriptions (Claude, ChatGPT/Codex) in one table.
-Grok is planned but not implemented yet.
+Shows the current usage limits of your AI subscriptions (Claude, ChatGPT/Codex, Grok) in one table.
 Uses each subscription's own login (OAuth / browser session), not API keys. macOS only.
 
 ## Install
@@ -18,6 +17,7 @@ npm link        # puts `aiu` on your PATH
 ```bash
 aiu login claude --name personal    # opens the browser; paste the code shown after login
 aiu login chatgpt --name pro        # opens the browser; returns automatically
+aiu login grok --name main          # paste the cookie header and user agent from grok.com DevTools
 aiu                                  # table of all accounts and their limits
 aiu --json                           # same, machine-readable
 aiu accounts                         # list configured accounts
@@ -37,6 +37,12 @@ they free up first.
 
 To add several accounts of the same service, switch the account in the browser
 (or use a private window) before each `aiu login`.
+
+Grok has no login API, so `aiu login grok` stores the `cookie` header and user agent of a logged-in
+grok.com tab (the command prints where to copy them). Paid plans show their weekly usage pool, free
+accounts their query quota. The cookie cannot be refreshed: when grok.com logs it out, the row says
+`Login expired` and you paste a fresh one. If Cloudflare refuses the request, the row says
+`Unavailable (blocked)`.
 
 ## How it stores things
 

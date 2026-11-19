@@ -48,7 +48,7 @@ export interface PlanStep {
   weeklyLeft: number;
   /** Weekly reset: the deadline for this step. */
   resetsAt: Date | null;
-  /** Labels of this account's model limits that still have room, e.g. ["Week (Fable)"]. */
+  /** Models (see `modelName`) with room in every one of their limits on this account, e.g. ["Fable"]. */
   premium: string[];
   /** Set only when the 5h window is used up: its label and reset. */
   sessionBlocked?: { label: string; resetsAt: Date | null };
@@ -176,13 +176,25 @@ function adviseModels(provider: ProviderId, usages: OkUsage[]): ModelAdvice[] {
   });
 }
 
+/**
+ * The model a model-specific limit belongs to: "Fable" from Claude's "Week (Fable)", "GPT-6 Pro" from
+ * ChatGPT's "GPT-6 Pro 5h" / "GPT-6 Pro Week"; any other label (e.g. "gpt-6-astra") is the model itself.
+ */
+export function modelName(label: string): string {
+  const scoped = label.match(/\(([^)]+)\)$/)?.[1];
+  if (scoped) return scoped;
+  return label.replace(/ (?:Week|\d+[mhd])$/, '');
+}
+
 function planProvider(provider: ProviderId, usages: OkUsage[]): ProviderPlan {
   const steps = usages
     .flatMap((usage): PlanStep[] => {
       const weekly = findKind(usage, 'weekly');
       if (!weekly || weekly.percent === null || isUsedUp(weekly)) return [];
       const session = findKind(usage, 'session');
-      const premium = usage.limits.filter((limit) => limit.kind === 'model' && !isUsedUp(limit)).map((limit) => limit.label);
+      const modelLimits = usage.limits.filter((limit) => limit.kind === 'model');
+      const blocked = new Set(modelLimits.filter(isUsedUp).map((limit) => modelName(limit.label)));
+      const premium = [...new Set(modelLimits.map((limit) => modelName(limit.label)))].filter((model) => !blocked.has(model));
       return [
         {
           accountId: accountId(usage.account),

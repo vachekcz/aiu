@@ -178,12 +178,15 @@ export function renderRecommendation(usages: AccountUsage[], now: Date, options:
   return lines.join('\n');
 }
 
-/** "Fable" from "Week (Fable)"; a label without parentheses (e.g. "gpt-6-astra") is the model name itself. */
-const modelName = (label: string): string => label.match(/\(([^)]+)\)$/)?.[1] ?? label;
+/**
+ * "Fable" from "Week (Fable)"; any other label stays whole, so "GPT-6 Pro 5h" still says which of the
+ * model's windows comes back.
+ */
+const backName = (label: string): string => label.match(/\(([^)]+)\)$/)?.[1] ?? label;
 
 function stepNote(step: PlanStep, now: Date): string {
   const notes = [
-    step.premium.length > 0 ? `with ${step.premium.map(modelName).join(', ')} first` : null,
+    step.premium.length > 0 ? `with ${step.premium.join(', ')} first` : null,
     step.sessionBlocked
       ? `${sessionName(step.sessionBlocked.label)} frees up ${step.sessionBlocked.resetsAt ? relative(step.sessionBlocked.resetsAt, now) : 'at an unknown time'}`
       : null,
@@ -222,7 +225,7 @@ function backLines(back: ModelBack[]): string[] {
     const entries = back
       .filter((entry) => entry.label === label)
       .map((entry) => `${entry.at ? formatReset(entry.at) : 'unknown'} on ${entry.accountId}`);
-    return `${modelName(label)} back: ${entries.join(' · ')}`;
+    return `${backName(label)} back: ${entries.join(' · ')}`;
   });
 }
 

@@ -200,7 +200,7 @@ describe('plan', () => {
         steps: [
           { accountId: 'claude/first', weeklyLeft: 43, resetsAt: inHours(5), premium: [] },
           { accountId: 'claude/blocked', weeklyLeft: 27, resetsAt: inHours(33), premium: [], sessionBlocked: { label: '5h', resetsAt: inHours(2) } },
-          { accountId: 'claude/late', weeklyLeft: 26, resetsAt: inHours(106), premium: ['Week (Fable)'] },
+          { accountId: 'claude/late', weeklyLeft: 26, resetsAt: inHours(106), premium: ['Fable'] },
         ],
         back: [
           { label: 'Week (Fable)', accountId: 'claude/first', at: inHours(5) },
@@ -227,7 +227,14 @@ describe('plan', () => {
       [ok('claude', 'x', [limit('weekly', 'Week (all)', 0, 50), limit('model', 'Week (Fable)', 0, 50), limit('model', 'Week (Opus)', 10, 50)])],
       now,
     );
-    expect(plan[0]?.steps[0]?.premium).toEqual(['Week (Fable)', 'Week (Opus)']);
+    expect(plan[0]?.steps[0]?.premium).toEqual(['Fable', 'Opus']);
+  });
+
+  it('names a model once and only when none of its windows is used up', () => {
+    const pro = (fiveHour: number, week: number) =>
+      ok('chatgpt', 'pro', [limit('weekly', 'Week', 40, 50), limit('model', 'GPT-6 Pro 5h', fiveHour, 2), limit('model', 'GPT-6 Pro Week', week, 50)]);
+    expect(recommend([pro(100, 30)], now).plan[0]?.steps[0]?.premium).toEqual([]);
+    expect(recommend([pro(10, 30)], now).plan[0]?.steps[0]?.premium).toEqual(['GPT-6 Pro']);
   });
 
   it('keeps 5h-blocked accounts in the plan while the recommendation finds nothing usable', () => {

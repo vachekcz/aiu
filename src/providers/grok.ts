@@ -12,7 +12,6 @@ const RATE_LIMITS_URL = `${ORIGIN}/rest/rate-limits`;
 const FREE_MODEL = 'grok-3';
 const ACTIVE_STATUS = 'SUBSCRIPTION_STATUS_ACTIVE';
 const GRPC_UNAUTHENTICATED = '16';
-const CHALLENGE_MARKERS = ['Just a moment', 'cf-chl', 'challenge-platform', 'cf_chl_opt'];
 
 // Fields of the GetGrokCreditsConfig response (protobuf), taken from what the web app reads.
 const F_CONFIG = 1;
@@ -133,7 +132,11 @@ export function parseGrokCredits(message: Uint8Array): Limit | null {
   return { label: 'Week', kind: 'weekly', percent, severity: severityForPercent(percent), resetsAt };
 }
 
-/** The query quota of a free account. The API reports when a used-up window frees up, not when it resets. */
+/**
+ * The query quota of a free account. remainingQueries/totalQueries are what the web app reads;
+ * windowSizeSeconds and waitTimeSeconds were only reported by users of a grok.com userscript and
+ * may be missing, so the label falls back to "Queries" and the reset to unknown.
+ */
 export function parseGrokRateLimits(json: unknown): Limit | null {
   const root = asRecord(json);
   const total = asNumber(root?.totalQueries);
@@ -156,12 +159,15 @@ export function hasActiveSubscription(json: unknown): boolean {
   return asArray(asRecord(json)?.subscriptions).some((entry) => asString(asRecord(entry)?.status) === ACTIVE_STATUS);
 }
 
-async function checkResponse(response: Response, what: string): Promise<void> {
+/**
+ * grok.com reports its own errors as JSON ({"code":16,...}); an HTML error page comes from Cloudflare
+ * (challenge or WAF block), which a new cookie would not fix.
+ */
+function checkResponse(response: Response, what: string): void {
   if (response.ok) return;
   const contentType = response.headers.get('content-type') ?? '';
-  if (contentType.includes('text/html')) {
-    const body = await response.text().catch(() => '');
-    if (CHALLENGE_MARKERS.some((marker) => body.includes(marker))) throw new BlockedError('Cloudflare challenge');
+  if (contentType.includes('text/html') || response.headers.has('cf-mitigated')) {
+    throw new BlockedError(`Grok ${what} blocked by Cloudflare (HTTP ${response.status})`);
   }
   if (response.status === 401 || response.status === 403) throw new AuthExpiredError('Grok rejected the cookie');
   throw new Error(`Grok ${what} HTTP ${response.status}`);
@@ -185,7 +191,7 @@ async function fetchCredits(credentials: GrokCredentials, signal: AbortSignal): 
     body: new Uint8Array(5),
     signal,
   });
-  await checkResponse(response, 'usage');
+  checkResponse(response, 'usage');
   const status = response.headers.get('grpc-status');
   if (status && status !== '0') throw grpcStatusError(status);
   const limit = parseGrokCredits(readGrpcWebMessage(new Uint8Array(await response.arrayBuffer())));
@@ -200,7 +206,7 @@ async function fetchRateLimits(credentials: GrokCredentials, signal: AbortSignal
     body: JSON.stringify({ requestKind: 'DEFAULT', modelName: FREE_MODEL }),
     signal,
   });
-  await checkResponse(response, 'rate limits');
+  checkResponse(response, 'rate limits');
   const limit = parseGrokRateLimits(await response.json());
   return limit ? [limit] : [];
 }
@@ -220,7 +226,7 @@ export const grokProvider: Provider<GrokCredentials> = {
     io.print('  3. Under Request Headers, copy the value of "cookie".');
     io.print('  4. In the Console, run navigator.userAgent and copy the result.');
     io.print('The cookie is stored only in macOS Keychain. When it expires, run this login again.');
-    const cookie = normaliseCookie(await io.prompt('Paste the cookie header: '));
+    const cookie = normaliseCookie(await io.prompt('Paste the cookie header (input hidden): ', { secret: true }));
     if (!cookie || /[\r\n]/.test(cookie)) throw new Error('Paste the cookie header value on one line');
     const userAgent = (await io.prompt('Paste the user agent: ')).trim();
     if (!userAgent || /[\r\n]/.test(userAgent)) throw new Error('Paste the user agent on one line');
@@ -237,7 +243,7 @@ export const grokProvider: Provider<GrokCredentials> = {
 
   async fetchUsage(credentials, signal): Promise<UsageSnapshot> {
     const response = await fetch(SUBSCRIPTIONS_URL, { headers: headers(credentials), signal });
-    await checkResponse(response, 'subscriptions');
+    checkResponse(response, 'subscriptions');
     const limits = hasActiveSubscription(await response.json())
       ? [await fetchCredits(credentials, signal)]
       : await fetchRateLimits(credentials, signal);

@@ -20,6 +20,8 @@ export interface ProviderAdvice {
   weeklyLeft?: number;
   weeklyResetsAt?: Date | null;
   sessionLeft?: number;
+  /** Label of that short window, e.g. "5h" (Claude, ChatGPT) or "2h" (Grok free). */
+  sessionLabel?: string;
   /** When nothing is usable: the earliest moment an account frees up, and which one. */
   availableAt?: Date | null;
   availableAccountId?: string;
@@ -101,13 +103,14 @@ function adviseProvider(provider: ProviderId, allUsages: OkUsage[], now: Date): 
       rankUrgency(second) - rankUrgency(first),
   );
   const weekly = findKind(best!, 'weekly');
-  const sessionLeft = left(findKind(best!, 'session'));
+  const session = findKind(best!, 'session');
+  const sessionLeft = left(session);
   const weeklyLeft = left(weekly);
   return {
     provider,
     accountId: accountId(best!.account),
     ...(weeklyLeft !== undefined ? { weeklyLeft, weeklyResetsAt: weekly!.resetsAt } : {}),
-    ...(sessionLeft !== undefined ? { sessionLeft } : {}),
+    ...(sessionLeft !== undefined ? { sessionLeft, sessionLabel: session!.label } : {}),
   };
 }
 

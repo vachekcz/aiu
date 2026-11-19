@@ -210,8 +210,12 @@ describe('grokProvider.fetchUsage', () => {
     await expect(grokProvider.fetchUsage(CREDENTIALS, signal)).rejects.toBeInstanceOf(AuthExpiredError);
   });
 
-  it('reports a Cloudflare challenge as blocked', async () => {
-    fetchMock.mockResolvedValueOnce(htmlResponse('<title>Just a moment...</title><div id="cf-chl-widget">', 403));
+  it.each([
+    ['a challenge', htmlResponse('<title>Just a moment...</title><div id="cf-chl-widget">', 403)],
+    ['a WAF block', htmlResponse('<title>Attention Required! | Cloudflare</title><div id="cf-error-details">', 403)],
+    ['a mitigated response', new Response('', { status: 403, headers: { 'cf-mitigated': 'challenge' } })],
+  ])('reports %s from Cloudflare as blocked, not as an expired login', async (_name, response) => {
+    fetchMock.mockResolvedValueOnce(response);
     await expect(grokProvider.fetchUsage(CREDENTIALS, signal)).rejects.toBeInstanceOf(BlockedError);
   });
 
@@ -222,14 +226,17 @@ describe('grokProvider.fetchUsage', () => {
 });
 
 describe('grokProvider login and refresh', () => {
-  const fakeIO = (answers: string[]): LoginIO & { questions: string[] } => {
+  const fakeIO = (answers: string[]): LoginIO & { questions: string[]; secret: boolean[] } => {
     const questions: string[] = [];
+    const secret: boolean[] = [];
     return {
       questions,
+      secret,
       print: () => undefined,
       openUrl: async () => undefined,
-      prompt: async (question) => {
+      prompt: async (question, options) => {
         questions.push(question);
+        secret.push(options?.secret ?? false);
         return answers.shift() ?? '';
       },
     };
@@ -239,6 +246,7 @@ describe('grokProvider login and refresh', () => {
     const io = fakeIO(['  cookie: sso=abc; sso-rw=def  ', ' Mozilla/5.0 Test ']);
     expect(await grokProvider.login(io)).toEqual({ credentials: CREDENTIALS });
     expect(io.questions).toHaveLength(2);
+    expect(io.secret).toEqual([true, false]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

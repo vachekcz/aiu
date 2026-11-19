@@ -138,7 +138,7 @@ function providerLine(entry: Advice['providers'][number], now: Date): string {
     entry.weeklyLeft !== undefined
       ? `${Math.floor(entry.weeklyLeft)} % of its weekly limit lapses ${entry.weeklyResetsAt ? relative(entry.weeklyResetsAt, now) : 'at an unknown time'}`
       : null,
-    entry.sessionLeft !== undefined ? `5h window ${Math.floor(entry.sessionLeft)} % free` : null,
+    entry.sessionLeft !== undefined ? `${entry.sessionLabel ?? '5h'} window ${Math.floor(entry.sessionLeft)} % free` : null,
   ].filter((detail) => detail !== null);
   return details.length > 0 ? `use ${entry.accountId}: ${details.join('; ')}` : `use ${entry.accountId}`;
 }

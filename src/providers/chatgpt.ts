@@ -1,7 +1,7 @@
 import { waitForOAuthCallback } from '../oauth/callbackServer.ts';
 import { createPkce, createState, decodeJwtPayload } from '../oauth/pkce.ts';
 import { severityForPercent } from '../render.ts';
-import { AuthExpiredError, type Limit, type Provider, type UsageSnapshot } from '../types.ts';
+import { AuthExpiredError, type Limit, type LimitKind, type Provider, type UsageSnapshot } from '../types.ts';
 import { asArray, asDate, asNumber, asRecord, asString } from './parsing.ts';
 
 // OAuth parameters of the Codex CLI (verified against its binary).
@@ -33,6 +33,12 @@ export function windowLabel(seconds: number): string {
   return `${Math.round(seconds / 60)}m`;
 }
 
+/** Named extra limits gate one feature or model; plain windows are the short or the weekly allowance. */
+function windowKind(seconds: number, prefix?: string): LimitKind {
+  if (prefix) return 'model';
+  return seconds >= 604_800 ? 'weekly' : 'session';
+}
+
 function windowLimit(window: unknown, prefix?: string): { limit: Limit; seconds: number } | null {
   const record = asRecord(window);
   const percent = asNumber(record?.used_percent);
@@ -43,7 +49,7 @@ function windowLimit(window: unknown, prefix?: string): { limit: Limit; seconds:
   const resetsAt =
     resetAt !== null ? asDate(resetAt * 1000) : resetAfter !== null ? asDate(Date.now() + resetAfter * 1000) : null;
   const label = prefix ? `${prefix} ${windowLabel(seconds)}` : windowLabel(seconds);
-  return { limit: { label, percent, severity: severityForPercent(percent), resetsAt }, seconds };
+  return { limit: { label, kind: windowKind(seconds, prefix), percent, severity: severityForPercent(percent), resetsAt }, seconds };
 }
 
 /** Primary and secondary windows, shorter window first ("5h" before "Week"). */
@@ -70,8 +76,8 @@ function modelLimits(models: unknown): Limit[] {
     const usage = asRecord(value);
     if (!usage || typeof usage.available !== 'boolean') return [];
     return usage.available
-      ? [{ label: model, percent: null, severity: 'normal', detail: 'available', resetsAt: null }]
-      : [{ label: model, percent: null, severity: 'critical', detail: 'blocked', resetsAt: asDate(usage.available_at) }];
+      ? [{ label: model, kind: 'model', percent: null, severity: 'normal', detail: 'available', resetsAt: null }]
+      : [{ label: model, kind: 'model', percent: null, severity: 'critical', detail: 'blocked', resetsAt: asDate(usage.available_at) }];
   });
 }
 

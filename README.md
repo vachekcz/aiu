@@ -18,7 +18,7 @@ npm link        # puts `aiu` on your PATH
 aiu login claude --name personal    # opens the browser; paste the code shown after login
 aiu login chatgpt --name pro        # opens the browser; returns automatically
 aiu login grok --name main          # paste the cookie header and user agent from grok.com DevTools
-aiu                                  # table of all accounts and their limits
+aiu                                  # table, recommendation and burn plan of all accounts
 aiu --json                           # same, machine-readable
 aiu accounts                         # list configured accounts
 aiu remove claude/personal           # forget an account

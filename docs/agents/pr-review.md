@@ -19,9 +19,9 @@ as usual, and the review does not wait for it.
 - The work is done, the PR is open as a **draft** (`gh pr create --draft`) and
   the checks pass on its head: the `CI Passed` check of
   `.github/workflows/ci.yml` (typecheck, and `npm test` on macOS), which runs
-  on draft PRs too. Fix failures first. A draft cannot be merged, so nobody merges the
-  PR before its findings are in. A PR that is already ready goes back with
-  `gh pr ready --undo N` for the review.
+  on draft PRs too. Fix failures first. A draft cannot be merged, so nobody
+  merges the PR before its findings are in. A PR that is already ready goes
+  back with `gh pr ready --undo N` for the review.
 - Skip it only when the diff has nothing in [Scope](#scope), or is a
   dependency bump that changes only `package.json` and `package-lock.json`.
   Write `Review PR: přeskočeno, <důvod>` in the PR body and mark the PR ready.

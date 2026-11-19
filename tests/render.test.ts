@@ -22,6 +22,7 @@ const usages: AccountUsage[] = [
       { label: '5h', kind: 'session', percent: 80, resetsAt: minutes(80), severity: 'critical' },
       {
         label: 'Week (Fable)',
+        kind: 'model',
         percent: 100,
         resetsAt: new Date('2026-11-20T18:00:00Z'),
         severity: 'critical',
@@ -178,6 +179,7 @@ describe('renderJson', () => {
             { label: '5h', kind: 'session', percent: 80, resetsAt: minutes(80).toISOString(), severity: 'critical' },
             {
               label: 'Week (Fable)',
+              kind: 'model',
               percent: 100,
               resetsAt: '2026-11-20T18:00:00.000Z',
               severity: 'critical',
@@ -193,7 +195,18 @@ describe('renderJson', () => {
           hint: 'aiu login grok --name main',
         },
       ],
-      recommendation: { providers: [{ provider: 'claude', accountId: 'claude/personal', sessionLeft: 20 }], models: [] },
+      recommendation: {
+        providers: [{ provider: 'claude', accountId: 'claude/personal', sessionLeft: 20 }],
+        models: [
+          {
+            provider: 'claude',
+            label: 'Week (Fable)',
+            availableOn: [],
+            availableAt: '2026-11-20T18:00:00.000Z',
+            availableAccountId: 'claude/personal',
+          },
+        ],
+      },
     });
   });
 });
@@ -278,6 +291,23 @@ describe('renderRecommendation', () => {
       color: false,
     });
     expect(output).toContain('Week (Fable) (Claude)  still available on claude/b');
+  });
+
+  it('says "now" instead of "in now" for a reset that has already passed', () => {
+    const past = at(-1);
+    const output = renderRecommendation(
+      [
+        {
+          account: { provider: 'chatgpt', label: 'pro' },
+          status: 'ok',
+          limits: [{ label: 'Week', kind: 'weekly', percent: 100, resetsAt: past, severity: 'critical' }],
+        },
+      ],
+      now,
+      { color: false },
+    );
+    expect(output).not.toContain('in now');
+    expect(output).toContain(`chatgpt/pro frees up now (${formatReset(past)})`);
   });
 
   it('says when a provider reports no limit data', () => {

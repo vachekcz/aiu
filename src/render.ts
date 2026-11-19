@@ -121,8 +121,11 @@ export function renderTable(usages: AccountUsage[], now: Date, options: { color:
 
 const PROVIDER_NAMES: Record<ProviderId, string> = { claude: 'Claude', chatgpt: 'ChatGPT', grok: 'Grok' };
 
+/** "in 3h 9m", or "now" for a moment that has already passed. */
+const relative = (at: Date, now: Date): string => (at <= now ? 'now' : `in ${formatCountdown(at, now)}`);
+
 function whenFree(at: Date | null, now: Date): string {
-  return at ? `in ${formatCountdown(at, now)} (${formatReset(at)})` : 'at an unknown time';
+  return at ? `${relative(at, now)} (${formatReset(at)})` : 'at an unknown time';
 }
 
 function providerLine(entry: Advice['providers'][number], now: Date): string {
@@ -133,7 +136,7 @@ function providerLine(entry: Advice['providers'][number], now: Date): string {
   }
   const details = [
     entry.weeklyLeft !== undefined
-      ? `${Math.floor(entry.weeklyLeft)} % of its weekly limit lapses ${entry.weeklyResetsAt ? `in ${formatCountdown(entry.weeklyResetsAt, now)}` : 'at an unknown time'}`
+      ? `${Math.floor(entry.weeklyLeft)} % of its weekly limit lapses ${entry.weeklyResetsAt ? relative(entry.weeklyResetsAt, now) : 'at an unknown time'}`
       : null,
     entry.sessionLeft !== undefined ? `5h window ${Math.floor(entry.sessionLeft)} % free` : null,
   ].filter((detail) => detail !== null);

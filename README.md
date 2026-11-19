@@ -32,6 +32,9 @@ those with one. When no account reports a 5h or weekly limit, it says so instead
 limits (e.g. Fable) that are used up on at least one account: where they are still available, or when
 they free up first.
 
+`aiu --json` prints the same data for scripts: each limit carries a `kind` (`session`, `weekly` or
+`model`) when known, and a top-level `recommendation` object holds the advice (`providers` and `models`).
+
 To add several accounts of the same service, switch the account in the browser
 (or use a private window) before each `aiu login`.
 

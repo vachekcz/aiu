@@ -136,6 +136,38 @@ describe('recommend', () => {
     expect(advice.providers).toEqual([{ provider: 'claude', accountId: null, noData: true }]);
   });
 
+  it('does not name a first account when another one frees up at an unknown time', () => {
+    const advice = recommend(
+      [ok('claude', 'known', [limit('weekly', 'Week (all)', 100, 30)]), ok('claude', 'unknown', [limit('weekly', 'Week (all)', 100, null)])],
+      now,
+    );
+    expect(advice.providers).toEqual([{ provider: 'claude', accountId: null, availableAt: null }]);
+  });
+
+  it('does not name a first account for a model when one of its resets is unknown', () => {
+    const blocked = (resetsIn: number | null): Limit => ({ ...limit('model', 'gpt-x', null, resetsIn), detail: 'blocked' });
+    const advice = recommend(
+      [ok('chatgpt', 'a', [limit('weekly', 'Week', 0, 50), blocked(10)]), ok('chatgpt', 'b', [limit('weekly', 'Week', 0, 50), blocked(null)])],
+      now,
+    );
+    expect(advice.models).toEqual([{ provider: 'chatgpt', label: 'gpt-x', availableOn: [], availableAt: null }]);
+  });
+
+  it('puts an account with a used-up limit of unknown kind behind the others', () => {
+    const advice = recommend(
+      [
+        ok('claude', 'odd', [
+          limit('session', '5h', 0, 3),
+          limit('weekly', 'Week (all)', 0, 5),
+          limit(undefined, 'monthly_x', 100, 100),
+        ]),
+        claude('normal', 0, 50, 100),
+      ],
+      now,
+    );
+    expect(advice.providers[0]?.accountId).toBe('claude/normal');
+  });
+
   it('returns nothing for no accounts', () => {
     expect(recommend([], now)).toEqual({ providers: [], models: [] });
   });

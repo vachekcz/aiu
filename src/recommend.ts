@@ -7,7 +7,8 @@ import { accountId, type AccountUsage, type Limit, type ProviderId } from './typ
  * would have to burn the most percent per hour to use up what is left: weekly % left / hours to reset.
  * Accounts whose 5h or weekly limit is used up cannot be used and are skipped, and so are accounts
  * that report neither limit (nothing to judge them by). Accounts with less than SESSION_ROOM % of
- * their 5h window left come last, since they would stop again within minutes. Accounts without a
+ * their 5h window left come last, since they would stop again within minutes, and so do accounts
+ * with a used-up limit of unknown kind. Accounts without a
  * weekly limit come after those with one and are ranked among themselves by their 5h window, since
  * a 5h window's % per hour is not comparable with a weekly one.
  */
@@ -60,10 +61,10 @@ function freesUpAt(usage: OkUsage): Date | null {
   return blocking.reduce<Date | null>((latest, limit) => (!latest || limit.resetsAt! > latest ? limit.resetsAt : latest), null);
 }
 
+/** The entry with the earliest date, or undefined when any date is unknown (then nobody is known to be first). */
 function earliest<T>(entries: T[], dateOf: (entry: T) => Date | null): T | undefined {
-  return entries
-    .filter((entry) => dateOf(entry) !== null)
-    .sort((first, second) => dateOf(first)!.getTime() - dateOf(second)!.getTime())[0];
+  if (entries.some((entry) => dateOf(entry) === null)) return undefined;
+  return [...entries].sort((first, second) => dateOf(first)!.getTime() - dateOf(second)!.getTime())[0];
 }
 
 /** % per hour this limit would have to be used at to use up what is left before its reset. */
@@ -88,7 +89,9 @@ function adviseProvider(provider: ProviderId, allUsages: OkUsage[], now: Date): 
       ...(first ? { availableAccountId: accountId(first.account) } : {}),
     };
   }
-  const hasRoom = (usage: OkUsage) => (left(findKind(usage, 'session')) ?? 100) >= SESSION_ROOM;
+  // A used-up limit of unknown kind may or may not gate the account, so it counts like a nearly full 5h window.
+  const hasRoom = (usage: OkUsage) =>
+    (left(findKind(usage, 'session')) ?? 100) >= SESSION_ROOM && !usage.limits.some((limit) => !limit.kind && isUsedUp(limit));
   const hasWeekly = (usage: OkUsage) => findKind(usage, 'weekly') !== undefined;
   const rankUrgency = (usage: OkUsage) => urgency(findKind(usage, 'weekly') ?? findKind(usage, 'session'), now);
   const [best] = [...usable].sort(

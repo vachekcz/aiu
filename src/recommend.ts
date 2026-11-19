@@ -76,14 +76,14 @@ export interface Advice {
   plan: ProviderPlan[];
 }
 
-const SESSION_ROOM = 10;
+export const SESSION_ROOM = 10;
 const HOUR_MS = 3_600_000;
 // Weekly limit without a known reset: assume a full week, so it never looks more urgent than it is.
 const UNKNOWN_RESET_HOURS = 7 * 24;
 
 type OkUsage = Extract<AccountUsage, { status: 'ok' }>;
 
-const isUsedUp = (limit: Limit): boolean => (limit.percent ?? 0) >= 100 || limit.detail === 'blocked';
+export const isUsedUp = (limit: Limit): boolean => (limit.percent ?? 0) >= 100 || limit.detail === 'blocked';
 const left = (limit: Limit | undefined): number | undefined =>
   limit?.percent === null || limit === undefined ? undefined : Math.max(0, 100 - limit.percent);
 const findKind = (usage: OkUsage, kind: Limit['kind']) => usage.limits.find((limit) => limit.kind === kind);
@@ -180,7 +180,7 @@ function adviseModels(provider: ProviderId, usages: OkUsage[]): ModelAdvice[] {
  * The model a model-specific limit belongs to: "Fable" from Claude's "Week (Fable)", "GPT-6 Pro" from
  * ChatGPT's "GPT-6 Pro 5h" / "GPT-6 Pro Week"; any other label (e.g. "gpt-6-astra") is the model itself.
  */
-function modelName(label: string): string {
+export function modelName(label: string): string {
   const scoped = label.match(/\(([^)]+)\)$/)?.[1];
   if (scoped) return scoped;
   return label.replace(/ (?:Week|\d+[mhd])$/, '');

@@ -1,9 +1,13 @@
-import { recommend, type Advice, type ModelBack, type PlanStep } from './recommend.ts';
+import { isUsedUp, modelName, recommend, SESSION_ROOM, type ProviderAdvice } from './recommend.ts';
 import { accountId, type AccountUsage, type Limit, type ProviderId, type Severity } from './types.ts';
 
-const BAR_CELLS = 10;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
+const SESSION_BAR_CELLS = 5;
+const WEEK_BAR_CELLS = 10;
+// % per hour needed to use up what is left of the weekly limit before it resets.
+const PACE_TIGHT = 1.5;
+const PACE_CRITICAL = 3;
 
 const ANSI = {
   reset: '\x1b[0m',
@@ -12,6 +16,7 @@ const ANSI = {
   red: '\x1b[31m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
+  cyan: '\x1b[36m',
 } as const;
 
 const SEVERITY_COLOR: Record<Severity, string> = {
@@ -20,18 +25,12 @@ const SEVERITY_COLOR: Record<Severity, string> = {
   critical: ANSI.red,
 };
 
+const PROVIDER_NAMES: Record<ProviderId, string> = { claude: 'Claude', chatgpt: 'ChatGPT', grok: 'Grok' };
+
 export function severityForPercent(percent: number): Severity {
   if (percent >= 80) return 'critical';
   if (percent >= 50) return 'warning';
   return 'normal';
-}
-
-/** Local weekday and time of the reset, e.g. "Fri 19:00". */
-export function formatReset(resetsAt: Date | null): string {
-  if (!resetsAt) return '';
-  const weekday = resetsAt.toLocaleDateString('en-US', { weekday: 'short' });
-  const time = resetsAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${weekday} ${time}`;
 }
 
 /** Time left until the reset, e.g. "2d 3h", "3h 9m", "19m". */
@@ -53,205 +52,349 @@ export function shouldUseColor(stream: { isTTY?: boolean }, env: NodeJS.ProcessE
   return Boolean(stream.isTTY) && !env.NO_COLOR;
 }
 
-interface Row {
-  account: string;
-  limit: string;
-  used: string;
-  resetsIn: string;
-  resets: string;
-  color?: string;
+/** "in 3h 9m", "now" for a moment that has already passed, or "at an unknown time". */
+function inTime(at: Date | null, now: Date): string {
+  if (!at) return 'at an unknown time';
+  return at <= now ? 'now' : `in ${formatCountdown(at, now)}`;
 }
 
-function formatUsed(limit: Limit): string {
-  if (limit.percent === null) return limit.detail ?? 'n/a';
-  const clamped = Math.min(100, Math.max(0, limit.percent));
-  const filled = Math.round(clamped / (100 / BAR_CELLS));
-  const bar = '█'.repeat(filled) + '░'.repeat(BAR_CELLS - filled);
-  // Floor, so 79.6 % does not read as the 80 % threshold while it is still below it.
-  const percentText = `${String(Math.floor(limit.percent)).padStart(3)} %`;
-  const marker = limit.severity === 'critical' ? '  !' : '';
-  return `${bar} ${percentText}${marker}`;
+// ---------- styled text ----------
+
+interface Segment {
+  text: string;
+  style?: string;
+}
+type Cell = Segment[];
+
+const segment = (text: string, style?: string): Segment => (style ? { text, style } : { text });
+const cellWidth = (cell: Cell): number => cell.reduce((sum, part) => sum + part.text.length, 0);
+const padCell = (cell: Cell, width: number): Cell => [...cell, segment(' '.repeat(Math.max(0, width - cellWidth(cell))))];
+const joinNotes = (notes: Cell[]): Cell => notes.flatMap((note, index) => (index === 0 ? note : [segment(' · ', ANSI.dim), ...note]));
+
+function paintLine(line: Cell, color: boolean): string {
+  const text = line.map((part) => (color && part.style && part.text ? `${part.style}${part.text}${ANSI.reset}` : part.text)).join('');
+  return text.trimEnd();
 }
 
-function rowsFor(usage: AccountUsage, now: Date): Row[] {
-  const id = accountId(usage.account);
-  if (usage.status === 'error') {
-    const hint = usage.hint ? ` — run: ${usage.hint}` : '';
-    return [{ account: id, limit: 'unavailable', used: `${usage.message}${hint}`, resetsIn: '', resets: '', color: ANSI.dim }];
-  }
-  if (usage.limits.length === 0) {
-    return [{ account: id, limit: '', used: 'no limits reported', resetsIn: '', resets: '', color: ANSI.dim }];
-  }
-  return usage.limits.map((limit, index) => ({
-    account: index === 0 ? id : '',
-    limit: limit.label,
-    used: formatUsed(limit),
-    resetsIn: formatCountdown(limit.resetsAt, now),
-    resets: formatReset(limit.resetsAt),
-    color: SEVERITY_COLOR[limit.severity],
-  }));
+// ---------- account rows ----------
+
+type OkUsage = Extract<AccountUsage, { status: 'ok' }>;
+
+/** Columns every provider section shares, so they line up across providers. */
+interface DataRow {
+  type: 'data';
+  glyph: Cell;
+  account: Cell;
+  session: Cell;
+  week: Cell;
+  /** One cell per model column of the provider (see `extraKey`). */
+  extras: Cell[];
+  resetsIn: Cell;
+  burn: Cell;
+  note: Cell;
 }
 
-export function renderTable(usages: AccountUsage[], now: Date, options: { color: boolean }): string {
-  const header: Row = { account: 'Account', limit: 'Limit', used: 'Used', resetsIn: 'Resets in', resets: 'Resets at' };
-  const groups = usages.map((usage) => rowsFor(usage, now));
-  const all = [header, ...groups.flat()];
-  const width = (key: keyof Omit<Row, 'color'>) => Math.max(...all.map((row) => row[key].length));
-  const widths = { account: width('account'), limit: width('limit'), used: width('used'), resetsIn: width('resetsIn') };
+/** A row whose text runs across the limit columns: an error or an account without limits. */
+interface SpanRow {
+  type: 'span';
+  glyph: Cell;
+  account: Cell;
+  message: Cell;
+}
 
-  const paint = (text: string, color: string | undefined) =>
-    options.color && color ? `${color}${text}${ANSI.reset}` : text;
+type Row = DataRow | SpanRow;
 
-  const line = (row: Row, isHeader: boolean) => {
-    const used = row.used.padEnd(widths.used);
-    const text = [
-      row.account.padEnd(widths.account),
-      row.limit.padEnd(widths.limit),
-      isHeader ? used : paint(used, row.color),
-      row.resetsIn.padEnd(widths.resetsIn),
-      row.resets,
-    ].join('  ');
-    return text.trimEnd();
+interface Section {
+  name: string;
+  header: DataRow | null;
+  rows: Row[];
+  /** Accounts with weekly allowance left, in burn order. */
+  burnable: AccountState[];
+  hasSession: boolean;
+}
+
+const findKind = (usage: OkUsage, kind: Limit['kind']) => usage.limits.find((limit) => limit.kind === kind);
+
+/** Model limits group by model ("Week (Fable)" → "Fable"); limits of unknown kind keep their label. */
+const extraKey = (limit: Limit): string | null => {
+  if (limit.kind === 'model') return modelName(limit.label);
+  return limit.kind ? null : limit.label;
+};
+
+function pace(weekly: Limit, pausedUntil: Date | null, now: Date): number | null {
+  if (weekly.percent === null || !weekly.resetsAt) return null;
+  const start = pausedUntil && pausedUntil > now ? pausedUntil : now;
+  const hours = Math.max((weekly.resetsAt.getTime() - start.getTime()) / HOUR_MS, 1 / 60);
+  return Math.max(0, 100 - weekly.percent) / hours;
+}
+
+const paceColor = (value: number | null): string =>
+  value === null ? ANSI.dim : value > PACE_CRITICAL ? ANSI.red : value >= PACE_TIGHT ? ANSI.yellow : ANSI.green;
+
+/** When an account with a used-up 5h or weekly limit is usable again: the latest such reset (null if unknown). */
+function freesUpAt(usage: OkUsage): Date | null {
+  const blocking = usage.limits.filter((limit) => (limit.kind === 'session' || limit.kind === 'weekly') && isUsedUp(limit));
+  if (blocking.some((limit) => limit.resetsAt === null)) return null;
+  return blocking.reduce<Date | null>((latest, limit) => (!latest || limit.resetsAt! > latest ? limit.resetsAt : latest), null);
+}
+
+const percentText = (percent: number): string => `${String(Math.floor(percent)).padStart(3)} %`;
+
+function bar(percent: number, cells: number): string {
+  const clamped = Math.min(100, Math.max(0, percent));
+  const filled = Math.round(clamped / (100 / cells));
+  return '█'.repeat(filled) + '░'.repeat(cells - filled);
+}
+
+/** A used-up limit is always red; on a row that waits for its weekly reset everything else is dimmed. */
+const limitStyle = (limit: Limit, dimmed: boolean): string =>
+  isUsedUp(limit) ? ANSI.red : dimmed ? ANSI.dim : SEVERITY_COLOR[limit.severity];
+
+function limitCell(limit: Limit | undefined, cells: number, dimmed: boolean): Cell {
+  if (!limit) return [segment('—', ANSI.dim)];
+  const style = limitStyle(limit, dimmed);
+  if (limit.percent === null) return [segment(limit.detail ?? 'n/a', isUsedUp(limit) ? ANSI.red : dimmed ? ANSI.dim : undefined)];
+  return [segment(`${bar(limit.percent, cells)} ${percentText(limit.percent)}`, style)];
+}
+
+function extraCell(limits: Limit[], dimmed: boolean): Cell {
+  if (limits.length === 0) return [];
+  if (limits.some(isUsedUp)) return [segment('✗ used', ANSI.red)];
+  const known = limits.filter((limit) => limit.percent !== null);
+  if (known.length === 0) return [segment(limits[0]!.detail ?? 'n/a', dimmed ? ANSI.dim : undefined)];
+  const fullest = known.reduce((max, limit) => (limit.percent! > max.percent! ? limit : max));
+  return [segment(percentText(fullest.percent!), limitStyle(fullest, dimmed))];
+}
+
+/** Earlier weekly reset first; no weekly limit or an unknown reset sorts after every known one. */
+function deadlineOf(usage: OkUsage): number {
+  const weekly = findKind(usage, 'weekly');
+  return weekly?.percent !== null && weekly?.resetsAt ? weekly.resetsAt.getTime() : Number.POSITIVE_INFINITY;
+}
+
+/** Ascending; two unknown (infinite) times compare equal, so they keep their order. */
+const compareTimes = (first: number, second: number): number => (first === second ? 0 : first - second);
+
+interface AccountState {
+  usage: OkUsage;
+  session?: Limit;
+  weekly?: Limit;
+  weeklyUsedUp: boolean;
+  /** 5h window used up, under SESSION_ROOM % left, or a used-up limit of unknown kind. */
+  paused: boolean;
+}
+
+function stateOf(usage: OkUsage): AccountState {
+  const session = findKind(usage, 'session');
+  const weekly = findKind(usage, 'weekly');
+  const sessionLow = session !== undefined && session.percent !== null && 100 - session.percent < SESSION_ROOM;
+  const unknownUsedUp = usage.limits.some((limit) => !limit.kind && isUsedUp(limit));
+  return {
+    usage,
+    ...(session ? { session } : {}),
+    ...(weekly ? { weekly } : {}),
+    weeklyUsedUp: weekly !== undefined && isUsedUp(weekly),
+    paused: (session !== undefined && isUsedUp(session)) || sessionLow || unknownUsedUp,
   };
-
-  // A blank line between accounts keeps each account's limits together.
-  const body = groups.map((rows) => rows.map((row) => line(row, false)).join('\n')).join('\n\n');
-  return [paint(line(header, true), ANSI.bold), body].filter(Boolean).join('\n');
 }
 
-const PROVIDER_NAMES: Record<ProviderId, string> = { claude: 'Claude', chatgpt: 'ChatGPT', grok: 'Grok' };
-
-/** "in 3h 9m", or "now" for a moment that has already passed. */
-const relative = (at: Date, now: Date): string => (at <= now ? 'now' : `in ${formatCountdown(at, now)}`);
-
-function whenFree(at: Date | null, now: Date): string {
-  return at ? `${relative(at, now)} (${formatReset(at)})` : 'at an unknown time';
-}
-
-/** "5h window" for a window length, else the label alone (e.g. Grok "Queries" without a known window). */
-const sessionName = (label = '5h'): string => (/^\d+[mhd]$/.test(label) ? `${label} window` : label);
-
-function providerLine(entry: Advice['providers'][number], now: Date): string {
-  if (entry.noData) return 'no 5h or weekly limit data to recommend from';
-  if (entry.accountId === null) {
-    const who = entry.availableAccountId ? `${entry.availableAccountId} frees up ` : 'an account frees up ';
-    return `nothing usable now; ${who}${whenFree(entry.availableAt ?? null, now)}`;
+function notesFor(state: AccountState, premium: string[], now: Date): Cell {
+  const { session, weekly, usage } = state;
+  const notes: Cell[] = [];
+  if (state.weeklyUsedUp) {
+    const back = freesUpAt(usage);
+    return joinNotes([[segment(back ? `week used up · back ${inTime(back, now)}` : 'week used up', ANSI.red)]]);
   }
-  const details = [
-    entry.weeklyLeft !== undefined
-      ? `${Math.floor(entry.weeklyLeft)} % of its weekly limit lapses ${entry.weeklyResetsAt ? relative(entry.weeklyResetsAt, now) : 'at an unknown time'}`
-      : null,
-    entry.sessionLeft !== undefined ? `${sessionName(entry.sessionLabel)} ${Math.floor(entry.sessionLeft)} % free` : null,
-  ].filter((detail) => detail !== null);
-  return details.length > 0 ? `use ${entry.accountId}: ${details.join('; ')}` : `use ${entry.accountId}`;
+  if (session && isUsedUp(session)) {
+    notes.push([segment(session.resetsAt ? `${session.label} back ${inTime(session.resetsAt, now)}` : `${session.label} used up`, ANSI.yellow)]);
+  } else if (session && session.percent !== null && 100 - session.percent < SESSION_ROOM) {
+    notes.push([segment(`${session.label} ${Math.floor(100 - session.percent)} % left`, ANSI.yellow)]);
+  }
+  for (const limit of usage.limits.filter((candidate) => !candidate.kind && isUsedUp(candidate))) {
+    notes.push([segment(`${limit.label} used up`, ANSI.yellow)]);
+  }
+  if (weekly && weekly.percent !== null) {
+    const pausedUntil = session && isUsedUp(session) ? session.resetsAt : null;
+    const value = pace(weekly, pausedUntil, now);
+    if (value !== null && value >= PACE_TIGHT) notes.push([segment(`needs ${value.toFixed(1)} %/h`, paceColor(value))]);
+    if (!weekly.resetsAt) notes.push([segment('reset unknown', ANSI.dim)]);
+  }
+  for (const model of premium) notes.push([segment(`${model} first`, ANSI.cyan)]);
+  return joinNotes(notes);
 }
 
-function modelLine(entry: Advice['models'][number], now: Date): string {
-  if (entry.availableOn.length > 0) return `still available on ${entry.availableOn.join(', ')}`;
-  const where = entry.availableAccountId ? ` on ${entry.availableAccountId}` : '';
-  return `used up on every account; frees up first ${whenFree(entry.availableAt, now)}${where}`;
-}
-
-/**
- * Which account to use now (see recommend.ts) and model limits that are used up somewhere.
- * Empty when there is nothing to advise.
- */
-export function renderRecommendation(usages: AccountUsage[], now: Date, options: { color: boolean }): string {
-  const advice = recommend(usages, now);
-  if (advice.providers.length === 0) return '';
-  const heading = (text: string) => (options.color ? `${ANSI.bold}${text}${ANSI.reset}` : text);
-  const align = (entries: [string, string][]) => {
-    const labelWidth = Math.max(...entries.map(([label]) => label.length));
-    return entries.map(([label, text]) => `  ${label.padEnd(labelWidth)}  ${text}`);
+function dataRow(state: AccountState, extras: string[], recommended: boolean, premium: string[], now: Date): DataRow {
+  const { usage, session, weekly, weeklyUsedUp, paused } = state;
+  const glyph = recommended
+    ? [segment('▶', ANSI.bold + ANSI.green)]
+    : weeklyUsedUp
+      ? [segment('✗', ANSI.red)]
+      : paused
+        ? [segment('‖', ANSI.yellow)]
+        : [segment(' ')];
+  const pausedUntil = session && isUsedUp(session) ? session.resetsAt : null;
+  const burn = (): Cell => {
+    if (weeklyUsedUp || !weekly || weekly.percent === null) return [segment('—', ANSI.dim)];
+    return [segment(percentText(Math.max(0, 100 - weekly.percent)), paceColor(pace(weekly, pausedUntil, now)))];
   };
-  const lines = [
-    heading('Recommendation'),
-    ...align(advice.providers.map((entry) => [PROVIDER_NAMES[entry.provider], providerLine(entry, now)])),
-  ];
-  if (advice.models.length > 0) {
-    lines.push(
-      '',
-      heading('Model limits'),
-      ...align(advice.models.map((entry) => [`${entry.label} (${PROVIDER_NAMES[entry.provider]})`, modelLine(entry, now)])),
-    );
-  }
-  return lines.join('\n');
+  const resetsIn = !weekly ? '—' : weekly.resetsAt ? formatCountdown(weekly.resetsAt, now) : 'unknown';
+  return {
+    type: 'data',
+    glyph,
+    account: [segment(usage.account.label, recommended ? ANSI.bold : weeklyUsedUp ? ANSI.dim : undefined)],
+    session: limitCell(session, SESSION_BAR_CELLS, weeklyUsedUp),
+    week: limitCell(weekly, WEEK_BAR_CELLS, weeklyUsedUp),
+    extras: extras.map((key) => extraCell(usage.limits.filter((limit) => extraKey(limit) === key), weeklyUsedUp)),
+    resetsIn: [segment(resetsIn, weeklyUsedUp || !weekly ? ANSI.dim : undefined)],
+    burn: burn(),
+    note: notesFor(state, premium, now),
+  };
 }
 
 /**
- * "Fable" from "Week (Fable)"; any other label stays whole, so "GPT-6 Pro 5h" still says which of the
- * model's windows comes back.
+ * One provider's accounts in the order to burn them: accounts with weekly allowance left by weekly reset
+ * (accounts waiting for their 5h window keep their place), then accounts whose weekly limit is used up,
+ * by when they free up, then accounts without limits and accounts that failed.
  */
-const backName = (label: string): string => label.match(/\(([^)]+)\)$/)?.[1] ?? label;
-
-function stepNote(step: PlanStep, now: Date): string {
-  const notes = [
-    step.premium.length > 0 ? `with ${step.premium.join(', ')} first` : null,
-    step.sessionBlocked
-      ? `${sessionName(step.sessionBlocked.label)} frees up ${step.sessionBlocked.resetsAt ? relative(step.sessionBlocked.resetsAt, now) : 'at an unknown time'}`
-      : null,
-  ];
-  return notes.filter((note) => note !== null).join(' · ');
-}
-
-/** `recommended` is the account `Recommendation` names; only its row says "now". */
-function stepLines(steps: PlanStep[], recommended: string | null, now: Date): string[] {
-  const cells = steps.map((step) => ({
-    lead: step.accountId === recommended ? 'now →' : '    →',
-    deadline: step.resetsAt ? formatReset(step.resetsAt) : 'unknown',
-    countdown: step.resetsAt ? `(${formatCountdown(step.resetsAt, now)})` : '',
-    account: step.accountId,
-    burn: `burn ${Math.floor(step.weeklyLeft)} %`,
-    note: stepNote(step, now),
-  }));
-  const width = (key: 'deadline' | 'countdown' | 'account' | 'burn') => Math.max(...cells.map((cell) => cell[key].length));
-  const widths = { deadline: width('deadline'), countdown: width('countdown'), account: width('account'), burn: width('burn') };
-  return cells.map((cell) =>
-    [
-      `${cell.lead} ${cell.deadline.padEnd(widths.deadline)}`,
-      cell.countdown.padEnd(widths.countdown),
-      cell.account.padEnd(widths.account),
-      cell.burn.padEnd(widths.burn),
-      cell.note,
-    ]
-      .join('  ')
-      .trimEnd(),
-  );
-}
-
-function backLines(back: ModelBack[]): string[] {
-  const labels = [...new Set(back.map((entry) => entry.label))];
-  return labels.map((label) => {
-    const entries = back
-      .filter((entry) => entry.label === label)
-      .map((entry) => `${entry.at ? formatReset(entry.at) : 'unknown'} on ${entry.accountId}`);
-    return `${backName(label)} back: ${entries.join(' · ')}`;
-  });
-}
-
-/**
- * Per provider, the accounts to burn in order of their weekly reset (see recommend.ts), the model
- * limits that come back later, or when a provider has nothing usable. Empty when there is no plan.
- */
-export function renderPlan(usages: AccountUsage[], now: Date, options: { color: boolean }): string {
-  const advice = recommend(usages, now);
-  const blocks = advice.plan.flatMap((plan) => {
-    const provider = advice.providers.find((entry) => entry.provider === plan.provider);
-    if (plan.steps.length > 0) {
-      const lines = [...stepLines(plan.steps, provider?.accountId ?? null, now), ...backLines(plan.back)];
-      return [{ name: PROVIDER_NAMES[plan.provider], lines }];
+function providerSection(provider: ProviderId, usages: AccountUsage[], advice: ProviderAdvice | undefined, now: Date): Section {
+  const name = PROVIDER_NAMES[provider];
+  const ok = usages.filter((usage): usage is OkUsage => usage.status === 'ok' && usage.limits.length > 0).map(stateOf);
+  const spans: SpanRow[] = usages.flatMap((usage): SpanRow[] => {
+    const account = [segment(usage.account.label, ANSI.dim)];
+    if (usage.status === 'error') {
+      const hint = usage.hint ? [segment(` — run: ${usage.hint}`, ANSI.dim)] : [];
+      return [{ type: 'span', glyph: [segment('!', ANSI.red)], account, message: [segment(usage.message, ANSI.red), ...hint] }];
     }
-    if (!provider || provider.accountId !== null || provider.noData) return [];
-    const where = provider.availableAccountId ? ` on ${provider.availableAccountId}` : '';
-    return [{ name: PROVIDER_NAMES[plan.provider], lines: [`nothing usable · back ${whenFree(provider.availableAt ?? null, now)}${where}`] }];
+    if (usage.limits.length === 0) return [{ type: 'span', glyph: [segment(' ')], account, message: [segment('no limits reported', ANSI.dim)] }];
+    return [];
   });
-  if (blocks.length === 0) return '';
-  const nameWidth = Math.max(...blocks.map((block) => block.name.length));
-  const heading = options.color ? `${ANSI.bold}Plan${ANSI.reset}` : 'Plan';
-  const body = blocks.flatMap((block) =>
-    block.lines.map((line, index) => `  ${(index === 0 ? block.name : '').padEnd(nameWidth)}  ${line}`),
+  const freeAt = (state: AccountState) => freesUpAt(state.usage)?.getTime() ?? Number.POSITIVE_INFINITY;
+  const burnable = ok.filter((state) => !state.weeklyUsedUp).sort((first, second) => compareTimes(deadlineOf(first.usage), deadlineOf(second.usage)));
+  const usedUp = ok.filter((state) => state.weeklyUsedUp).sort((first, second) => compareTimes(freeAt(first), freeAt(second)));
+
+  const extras = [...new Set(ok.flatMap((state) => state.usage.limits.map(extraKey).filter((key) => key !== null)))];
+  // Each model with room is suggested once: on the first account in burn order that still has it.
+  const premiumFor = new Map<AccountState, string[]>();
+  for (const model of extras.filter((key) => ok.some((state) => state.usage.limits.some((limit) => limit.kind === 'model' && modelName(limit.label) === key)))) {
+    const first = burnable.find((state) => {
+      const limits = state.usage.limits.filter((limit) => limit.kind === 'model' && modelName(limit.label) === model);
+      return limits.length > 0 && !limits.some(isUsedUp);
+    });
+    if (first) premiumFor.set(first, [...(premiumFor.get(first) ?? []), model]);
+  }
+
+  const recommendedId = advice?.accountId ?? null;
+  const rows: Row[] = [...burnable, ...usedUp].map((state) =>
+    dataRow(state, extras, accountId(state.usage.account) === recommendedId, premiumFor.get(state) ?? [], now),
   );
-  return [heading, ...body].join('\n');
+  const sessionLabel = ok.find((state) => state.session)?.session?.label ?? '5h';
+  const bold = (text: string) => [segment(text, ANSI.bold)];
+  const header: DataRow | null =
+    ok.length === 0
+      ? null
+      : {
+          type: 'data',
+          glyph: [],
+          account: bold(name),
+          session: bold(sessionLabel),
+          week: bold('Week'),
+          extras: extras.map(bold),
+          resetsIn: bold('Resets in'),
+          burn: bold('Burn'),
+          note: [],
+        };
+  return { name, header, rows: [...rows, ...spans], burnable, hasSession: ok.some((state) => state.session) };
+}
+
+/** All sections share one set of column widths, so 5h, Week, Resets in and Burn line up across providers. */
+function sectionLines(sections: Section[]): Cell[][] {
+  const dataRows = sections.flatMap((section) => [...(section.header ? [section.header] : []), ...section.rows.filter((row): row is DataRow => row.type === 'data')]);
+  const allRows = sections.flatMap((section) => section.rows);
+  const hasSession = sections.some((section) => section.hasSession);
+  const extraSlots = Math.max(0, ...dataRows.map((row) => row.extras.length));
+  const widthOf = (pick: (row: DataRow) => Cell) => Math.max(0, ...dataRows.map((row) => cellWidth(pick(row))));
+  const widths = {
+    glyph: 1,
+    account: Math.max(widthOf((row) => row.account), ...allRows.map((row) => cellWidth(row.account)), ...sections.map((section) => section.name.length)),
+    session: widthOf((row) => row.session),
+    week: widthOf((row) => row.week),
+    extras: Array.from({ length: extraSlots }, (_, index) => widthOf((row) => row.extras[index] ?? [])),
+    resetsIn: widthOf((row) => row.resetsIn),
+    burn: widthOf((row) => row.burn),
+  };
+  const lead = (row: Row): Cell => [...padCell(row.glyph, widths.glyph), segment(' '), ...padCell(row.account, widths.account), segment('  ')];
+  const line = (row: Row): Cell => {
+    if (row.type === 'span') return [...lead(row), ...row.message];
+    const columns: Cell[] = [
+      ...(hasSession ? [padCell(row.session, widths.session)] : []),
+      padCell(row.week, widths.week),
+      ...widths.extras.map((width, index) => padCell(row.extras[index] ?? [], width)),
+      padCell(row.resetsIn, widths.resetsIn),
+      padCell(row.burn, widths.burn),
+      row.note,
+    ];
+    return [...lead(row), ...columns.flatMap((cell, index) => (index === 0 ? cell : [segment('  '), ...cell]))];
+  };
+  return sections.map((section) => [
+    ...(section.header ? [line(section.header)] : [[segment('  '), segment(section.name, ANSI.bold)]]),
+    ...section.rows.map(line),
+  ]);
+}
+
+// ---------- "Use now" ----------
+
+function useNowLine(name: string, advice: ProviderAdvice | undefined, usages: AccountUsage[], burnable: AccountState[], now: Date): Cell {
+  const labelOf = (id: string | undefined) => usages.find((usage) => accountId(usage.account) === id)?.account.label ?? id ?? '';
+  const lead = (glyph: Segment) => [glyph, segment(' '), segment(name, ANSI.bold)];
+  if (!advice) return [...lead(segment('✗', ANSI.red)), segment('  '), segment('no data: every account failed', ANSI.red)];
+  if (advice.noData) return [...lead(segment('✗', ANSI.red)), segment('  '), segment('no 5h or weekly limit data to recommend from', ANSI.dim)];
+  if (advice.accountId === null) {
+    const where = advice.availableAccountId ? [segment(' on '), segment(labelOf(advice.availableAccountId), ANSI.bold)] : [];
+    return [...lead(segment('✗', ANSI.red)), segment('  '), segment('nothing usable', ANSI.red), segment(` — back ${inTime(advice.availableAt ?? null, now)}`), ...where];
+  }
+  const recommended = burnable.find((state) => accountId(state.usage.account) === advice.accountId);
+  const parts: Cell = [...lead(segment('▶', ANSI.bold + ANSI.green)), segment('  use '), segment(labelOf(advice.accountId), ANSI.bold)];
+  const details: Cell[] = [];
+  if (advice.weeklyLeft !== undefined) {
+    const left = Math.floor(advice.weeklyLeft);
+    const weekly = recommended?.weekly;
+    const style = weekly ? paceColor(pace(weekly, null, now)) : undefined;
+    details.push([segment(advice.weeklyResetsAt ? `${left} % lapses ${inTime(advice.weeklyResetsAt, now)}` : `${left} % left, reset unknown`, style)]);
+  }
+  if (advice.sessionLeft !== undefined) details.push([segment(`${advice.sessionLabel ?? '5h'} ${Math.floor(advice.sessionLeft)} % free`)]);
+  // An account due earlier that waits for its 5h window: say when to switch back to it.
+  const recommendedIndex = recommended ? burnable.indexOf(recommended) : -1;
+  const waiting = burnable.slice(0, Math.max(0, recommendedIndex)).find((state) => state.paused && deadlineOf(state.usage) < deadlineOf(recommended!.usage));
+  if (waiting) {
+    const when = waiting.session?.resetsAt && isUsedUp(waiting.session) ? inTime(waiting.session.resetsAt, now) : 'when it frees up';
+    details.push([segment(`back to ${waiting.usage.account.label} ${when}`, ANSI.yellow)]);
+  }
+  return details.length === 0 ? parts : [...parts, segment(' — '), ...details.flatMap((detail, index) => (index === 0 ? detail : [segment(' · '), ...detail]))];
+}
+
+/**
+ * The default output: per provider, which account to use now, then every account in the order to burn its
+ * weekly allowance (see recommend.ts), with its limits, time to the weekly reset and how much is left.
+ */
+export function renderOverview(usages: AccountUsage[], now: Date, options: { color: boolean }): string {
+  const advice = recommend(usages, now);
+  const providers = [...new Set(usages.map((usage) => usage.account.provider))];
+  const byProvider = (provider: ProviderId) => usages.filter((usage) => usage.account.provider === provider);
+  const adviceFor = (provider: ProviderId) => advice.providers.find((entry) => entry.provider === provider);
+  const sections = providers.map((provider) => providerSection(provider, byProvider(provider), adviceFor(provider), now));
+  const nameWidth = Math.max(...sections.map((section) => section.name.length));
+  const indent = (line: Cell): Cell => (line.length === 0 ? line : [segment('  '), ...line]);
+  const heading = (title: string, subtitle: string): Cell => [segment(title, ANSI.bold), segment(`  ${subtitle}`, ANSI.dim)];
+  const lines: Cell[] = [
+    heading('Use now', 'which account to work on right now'),
+    ...providers.map((provider, index) =>
+      indent(useNowLine(sections[index]!.name.padEnd(nameWidth), adviceFor(provider), byProvider(provider), sections[index]!.burnable, now)),
+    ),
+    [],
+    heading('Accounts', 'burn top to bottom: earliest weekly reset first'),
+    ...sectionLines(sections).flatMap((section, index) => [...(index > 0 ? [[]] : []), ...section.map(indent)]),
+  ];
+  return lines.map((line) => paintLine(line, options.color)).join('\n');
 }
 
 export function renderJson(usages: AccountUsage[], now: Date): string {

@@ -78,11 +78,11 @@ describe('aiu', () => {
     accounts = [{ provider: 'claude', label: 'personal' }];
     credentials.set('claude/personal', { token: 't' });
     expect(await main([], deps())).toBe(0);
-    expect(stdout).toContain('claude/personal');
+    expect(stdout).toContain('personal');
     expect(stdout).toContain(' 42 %');
   });
 
-  it('prints the plan after the recommendation', async () => {
+  it('prints which account to use now above the accounts in burn order', async () => {
     accounts = [{ provider: 'claude', label: 'personal' }];
     credentials.set('claude/personal', { token: 't' });
     const weeklyProvider: Provider<unknown> = {
@@ -92,8 +92,8 @@ describe('aiu', () => {
       }),
     };
     expect(await main([], { ...deps(), providers: { claude: weeklyProvider } })).toBe(0);
-    expect(stdout.indexOf('Plan')).toBeGreaterThan(stdout.indexOf('Recommendation'));
-    expect(stdout).toContain('claude/personal  burn 60 %');
+    expect(stdout.indexOf('Accounts')).toBeGreaterThan(stdout.indexOf('Use now'));
+    expect(stdout).toContain('use personal — 60 % lapses in 10h 0m');
   });
 
   it('prints valid JSON with --json when no accounts are configured', async () => {

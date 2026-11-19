@@ -21,27 +21,45 @@ npm link        # puts `aiu` on your PATH
 aiu login claude --name personal    # opens the browser; paste the code shown after login
 aiu login chatgpt --name pro        # opens the browser; returns automatically
 aiu login grok --name main          # paste the cookie header and user agent from grok.com DevTools
-aiu                                  # table, recommendation and burn plan of all accounts
+aiu                                  # which account to use now, then all accounts in burn order
 aiu --json                           # same, machine-readable
 aiu accounts                         # list configured accounts
 aiu remove claude/personal           # forget an account
 ```
 
-Below the table, `aiu` recommends which account to use now per service: the one whose weekly limit
-resets first (an unknown reset counts as last), so as little allowance as possible lapses unused, skipping accounts whose 5h
-or weekly limit is used up, and accounts that report neither limit. Accounts with less than 10 % of their 5h window
-left come last, because they would stop again within minutes, and accounts without a weekly limit come after
-those with one. When no account reports a 5h or weekly limit, it says so instead of guessing. When no account is usable, it says which one frees up first. It also lists model
-limits (e.g. Fable) that are used up on at least one account: where they are still available, or when
-they free up first.
+`aiu` prints two sections:
 
-Last comes the `Plan`: per service, every account with weekly allowance left, in the order to use it up
-(earliest weekly reset first), with the deadline and how much is left to burn. The recommended account
-leads and is the only row marked `now →`; no row is when nothing is usable now. A row adds
-`with Fable first` when that account still has room for a model with its own limit, and when its 5h window
-frees up if it is used up. Below the rows, `Fable back:` lists when a used-up model limit resets on each
-account. When no account of a service has weekly allowance left and none is usable, it gets one line
-saying when an account frees up.
+```
+Use now  which account to work on right now
+  ▶ Claude   use pvachek@example.com — 22 % lapses in 22h 18m · 5h 80 % free
+  ✗ ChatGPT  nothing usable — back in 1d 0h on me@example.com
+
+Accounts  burn top to bottom: earliest weekly reset first
+    Claude               5h           Week              Fable        Resets in  Burn
+  ▶ pvachek@example.com  █░░░░  20 %  ████████░░  78 %  ✗ used       22h 18m     22 %
+    info@example.com     ░░░░░   0 %  ████████░░  79 %  ✗ used       4d 0h       21 %
+    work@example.com     ░░░░░   3 %  █░░░░░░░░░   9 %    0 %        6d 19h      91 %  Fable first
+
+    ChatGPT              5h           Week              gpt-6-astra  Resets in  Burn
+  ✗ me@example.com       —            ██████████ 100 %  ✗ used       1d 0h      —      week used up · back in 1d 0h
+```
+
+`Use now` names, per service, the account to work on: the one whose weekly limit resets first (an
+unknown reset counts as last), so as little allowance as possible lapses unused. It skips accounts whose
+5h or weekly limit is used up and accounts that report neither limit. Accounts with less than 10 % of
+their 5h window left come last, because they would stop again within minutes, and accounts without a
+weekly limit come after those with one. When an account due earlier is only waiting for its 5h window,
+the line says when to switch back to it. When no account is usable, it says which one frees up first.
+
+`Accounts` lists every account per service in the order to burn its weekly allowance. `▶` marks the
+account to use now, `‖` one waiting for its 5h window (it keeps its place in the order), `✗` one whose
+weekly limit is used up (listed after the others, by when it frees up) and `!` one that failed, with the
+command that fixes it. The columns are shared by all services, so a service without a 5h window shows `—`.
+Bars are green below 50 %, yellow from 50 % and red from 80 %; a used-up limit is always red. Each
+model with its own limit (e.g. Fable) gets a column, and `Fable first` marks the first account in the
+order that still has room for it. `Burn` is how much of the weekly allowance is left, coloured by the
+pace needed to use it up before the reset: green below 1.5 %/h, yellow up to 3 %/h, red above, and the
+note names that pace once it is 1.5 %/h or more.
 
 `aiu --json` prints the same data for scripts: each limit carries a `kind` (`session`, `weekly` or
 `model`) when known, and a top-level `recommendation` object holds the advice (`providers`, `models` and

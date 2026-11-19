@@ -1,0 +1,135 @@
+# Adapted from the dev-template bundle github-ci (base/node-ci.yml, 2026-10-10).
+#
+# CI runs the same checks as the local pre-push hook (.githooks/pre-push): a
+# green pre-push should mean a green CI. When you add or remove a gate in one,
+# mirror it in the other, and keep the docs-only patterns of both in line.
+#
+# Two legs: `static` (typecheck) on Linux and `unit` (vitest) on macOS, because
+# tests/store/keychain.test.ts touches the real macOS Keychain. Branch
+# protection requires only the `CI Passed` aggregation gate.
+
+name: CI
+
+on:
+  # Every job is PR-only, so a push to main runs nothing, but a push that
+  # changes code makes `CI Passed` report (as skipped) on main's HEAD; after a
+  # docs-only merge it does not report there. The branch-protection audit
+  # (dev-template github-repo-settings) checks that, and GitHub keeps the
+  # required check bound to the Actions app only while it reports recently.
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "LICENSE"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pull_request_template.md"
+  # No paths-ignore on pull_request, on purpose: it would stop the workflow from
+  # starting, `CI Passed` would never report and a PR under branch protection
+  # would wait forever. Docs-only PRs skip the legs in the `changes` job instead.
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Bash everywhere, so a failure inside a pipe is not masked by its exit code.
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Decides whether the PR touches anything that can change behaviour. A
+  # deny-list on purpose: a missing entry runs CI needlessly (cheap), whereas a
+  # missing entry in an allow-list would skip CI on a real change (expensive).
+  # ci.yml itself is not excluded: a change to CI must run CI.
+  changes:
+    name: Detect changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          # `every` is required for the '!' patterns to bite: a file must match
+          # '**' and every negation to count as code.
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!LICENSE'
+              - '!.github/ISSUE_TEMPLATE/**'
+              - '!.github/pull_request_template.md'
+
+  pr-checks:
+    name: ${{ matrix.name }}
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.code == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - check: static
+            name: Typecheck
+            runner: ubuntu-latest
+          - check: unit
+            name: Unit Tests
+            # aiu is macOS-only and the Keychain test needs `security`.
+            runner: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Check jobs never push back; don't leave the token in .git/config.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          # .nvmrc is the single source of the Node version for CI and local dev.
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        if: matrix.check == 'static'
+        run: npm run typecheck
+
+      - name: Unit tests
+        if: matrix.check == 'unit'
+        run: npm test
+
+  # The single check branch protection requires. Skipped legs pass only on a
+  # docs-only PR; on a code PR every job must report `success`, because a leg
+  # that failed to start does not show up as `failure` in `needs`.
+  ci-passed:
+    name: CI Passed
+    if: always() && github.event_name == 'pull_request'
+    needs: [changes, pr-checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check results of required jobs
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+          DOCS_ONLY: ${{ needs.changes.outputs.code == 'false' }}
+        run: |
+          for result in $RESULTS; do
+            if [[ "$result" == "success" ]]; then continue; fi
+            if [[ "$result" == "skipped" && "$DOCS_ONLY" == "true" ]]; then continue; fi
+            echo "::error::A required CI job did not succeed (result: $result, docs-only: $DOCS_ONLY)."
+            exit 1
+          done

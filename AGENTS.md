@@ -15,10 +15,16 @@ normalised `Limit` from `src/types.ts`; `src/render.ts` prints a table or JSON.
 ## Commands
 
 ```bash
-npm ci              # install
+npm ci              # install; also wires the pre-push hook (postinstall)
 npm test            # vitest; also touches the real Keychain under service ai-usage-test
 npm run typecheck   # tsc --noEmit
+npm run hooks:doctor  # check that .githooks/ is wired in this worktree
 ```
+
+CI (`.github/workflows/ci.yml`) runs the typecheck on Linux and `npm test` on
+macOS; branch protection on `main` requires its single `CI Passed` check. The
+pre-push hook (`.githooks/pre-push`) is a fast subset of CI: keep every step
+of the hook in CI too, and the docs-only patterns of both in line.
 
 ## Rules
 
@@ -35,9 +41,21 @@ npm run typecheck   # tsc --noEmit
 - Tests never hit real endpoints; stub `fetch`.
 - Code, identifiers, comments, CLI output and commit messages are in English.
   PR title, body and review comments are in Czech.
-- Exception: `scripts/pr-review-comment.sh` is a 1:1 copy of the dev-template
-  bundle `pr-review` and keeps its Czech messages, so it can be updated by
-  copying the new version.
+- Exception: `scripts/pr-review-comment.sh` (bundle `pr-review`) and
+  `scripts/hook-run-step.sh`, `hook-scope.sh`, `setup-hooks.sh`,
+  `check-hooks.sh`, `ensure-hooks.sh` (bundle `git-hooks`) are 1:1 copies from
+  dev-template and keep their Czech messages, so they can be updated by
+  copying the new version. Don't edit them here.
+
+## Git workflow
+
+- Never commit directly to `main`; work goes on a branch and through a PR.
+  Branch prefixes: `feature/`, `fix/`, `refactor/`, `docs/`.
+- Commits are atomic (one logical change), in English, imperative mood
+  (`add`, `fix`, `drop`, not `added` or `adding`).
+- Never resolve a review comment silently. When you fix or reject one, reply
+  in its thread with what changed and in which commit (or why it won't be
+  fixed), then mark the thread resolved.
 
 ## Finishing
 

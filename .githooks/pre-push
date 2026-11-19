@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-push: a fast subset of CI, adapted from the dev-template bundle git-hooks.
+# CI (.github/workflows/ci.yml, check "CI Passed") is the gate; this hook only
+# catches cheap mistakes before they cost a CI round-trip. Keep every step here
+# also in CI, and keep the docs-only patterns in line with the `changes` job.
+#
+# Each step goes through scripts/hook-run-step.sh: quiet on success, log tail
+# on failure. Env switches:
+#   HOOK_SKIP=1      skip everything (like --no-verify, but greppable)
+#   HOOK_VERBOSE=1   stream every step's output live
+#   HOOK_NO_CACHE=1  ignore the verified-tree cache
+#   HOOK_NO_SCOPE=1  run every step regardless of what changed
+
+if [ "${HOOK_SKIP:-}" = "1" ]; then
+  echo "⚠ HOOK_SKIP=1 — skipping local checks."
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel)"
+# shellcheck source-path=SCRIPTDIR/..
+# shellcheck source=scripts/hook-scope.sh
+. "$ROOT/scripts/hook-scope.sh"
+
+# Reads git's pre-push stdin: what is pushed and what it changes on the remote.
+hook_scope_init "$@"
+
+# Nothing to check when the push only deletes remote branches.
+[ "$HOOK_PUSH_HAS_CONTENT" = "1" ] || exit 0
+
+# The same tree already passed.
+if hook_cache_hit; then
+  exit 0
+fi
+
+# Steps read the working tree, which may differ from what is pushed.
+if hook_worktree_differs; then
+  echo "⚠ Checks run on a working tree that differs from the pushed content."
+fi
+
+# Docs-only push: nothing to check (the repo has no docs check). Same patterns
+# as the `changes` job in CI.
+if hook_docs_only 'docs/*' '*.md' 'LICENSE' '.github/ISSUE_TEMPLATE/*' '.github/pull_request_template.md'; then
+  echo "✅ Docs only — pushing."
+  exit 0
+fi
+
+if [ ! -d "$ROOT/node_modules" ]; then
+  echo "❌ node_modules is missing — run 'npm ci' and push again."
+  exit 1
+fi
+
+hook_step "Typecheck" -- npm run typecheck --silent
+
+hook_step "Unit tests" -- npm test --silent
+
+hook_cache_store
+echo "✅ Local checks passed — pushing."

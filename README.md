@@ -41,3 +41,7 @@ The usage endpoints are unofficial and may change without notice.
 npm test
 npm run typecheck
 ```
+
+`npm ci` wires a pre-push hook that runs the typecheck and tests before a push
+that changes code (`HOOK_SKIP=1 git push` skips it). CI runs the same checks on
+every PR that changes code.

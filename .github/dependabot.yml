@@ -1,0 +1,37 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    # Skip releases younger than a week, and let majors settle for a month,
+    # so a cycle does not pick a version that is superseded days later.
+    # GitHub applies cooldown to version updates only, never to security ones.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    groups:
+      # Security fixes ride their own alert-driven path, so the monthly
+      # schedule never holds them back. The group only bundles them into one PR.
+      security-updates:
+        applies-to: security-updates
+        patterns: ["*"]
+      # One pull request per ecosystem per cycle. Majors are in on purpose:
+      # a peer pair (vitest/@vitest/ui, react/react-dom, wrangler/@cloudflare/*)
+      # can then never split across two PRs — which is what the thematic groups
+      # used to arrange by hand, one pattern list at a time.
+      all-updates:
+        patterns: ["*"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
+    groups:
+      # One pull request per cycle, majors included.
+      all-updates:
+        patterns: ["*"]

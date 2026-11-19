@@ -27,7 +27,7 @@ const claude = (label: string, session: number, weekly: number, weeklyResetsIn: 
   ]);
 
 describe('recommend', () => {
-  it('picks the account whose unused weekly allowance lapses fastest', () => {
+  it('picks the account whose weekly allowance lapses first', () => {
     const advice = recommend(
       [
         claude('soon', 10, 56, 17.65), // 44 % left, lapses in under a day
@@ -39,6 +39,17 @@ describe('recommend', () => {
     expect(advice.providers).toEqual([
       expect.objectContaining({ provider: 'claude', accountId: 'claude/soon', weeklyLeft: 44, sessionLeft: 90 }),
     ]);
+  });
+
+  it('uses the account whose allowance lapses first, even if another needs more % per hour', () => {
+    // X: 5 % left for 2h (2.5 %/h). Y: 60 % left for 10h (6 %/h). Deadline order loses nothing.
+    const advice = recommend([claude('y', 0, 40, 10), claude('x', 0, 95, 2)], now);
+    expect(advice.providers[0]?.accountId).toBe('claude/x');
+  });
+
+  it('puts an unknown weekly reset after every known one', () => {
+    const advice = recommend([ok('claude', 'unknown', [limit('weekly', 'Week (all)', 10, null)]), claude('known', 0, 10, 150)], now);
+    expect(advice.providers[0]?.accountId).toBe('claude/known');
   });
 
   it('skips accounts whose 5h or weekly limit is used up', () => {

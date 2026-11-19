@@ -3,14 +3,16 @@ import { accountId, type AccountUsage, type Limit, type ProviderId } from './typ
 /**
  * Which account to work on now so that as little of each subscription as possible lapses unused.
  *
- * Unused weekly allowance is lost at the weekly reset, so the most urgent account is the one that
- * would have to burn the most percent per hour to use up what is left: weekly % left / hours to reset.
+ * Unused weekly allowance is lost at the weekly reset, so accounts are worked through by deadline:
+ * the one whose weekly limit resets first comes first (unknown resets last). Deadline order loses
+ * nothing whenever everything can be used in time, unlike ranking by % per hour needed: with X at
+ * 5 % left for 2h and Y at 60 % left for 10h, Y needs more per hour, but working on Y lets X's 5 %
+ * lapse, while X first takes an hour and still leaves 9h for Y.
  * Accounts whose 5h or weekly limit is used up cannot be used and are skipped, and so are accounts
  * that report neither limit (nothing to judge them by). Accounts with less than SESSION_ROOM % of
  * their 5h window left come last, since they would stop again within minutes, and so do accounts
- * with a used-up limit of unknown kind. Accounts without a
- * weekly limit come after those with one and are ranked among themselves by their 5h window, since
- * a 5h window's % per hour is not comparable with a weekly one.
+ * with a used-up limit of unknown kind. Accounts without a weekly limit come after those with one
+ * and are ranked among themselves by their 5h window's % per hour, since they have no deadline.
  */
 
 export interface ProviderAdvice {
@@ -76,6 +78,13 @@ function urgency(gate: Limit | undefined, now: Date): number {
   return remaining / hours;
 }
 
+/** Earlier reset first; an unknown reset sorts after every known one. */
+function byDeadline(first: Limit, second: Limit): number {
+  const time = (limit: Limit) => limit.resetsAt?.getTime() ?? Number.POSITIVE_INFINITY;
+  const difference = time(first) - time(second);
+  return Number.isNaN(difference) ? 0 : difference;
+}
+
 const hasGate = (usage: OkUsage): boolean => findKind(usage, 'weekly') !== undefined || findKind(usage, 'session') !== undefined;
 
 function adviseProvider(provider: ProviderId, allUsages: OkUsage[], now: Date): ProviderAdvice {
@@ -95,12 +104,12 @@ function adviseProvider(provider: ProviderId, allUsages: OkUsage[], now: Date): 
   const hasRoom = (usage: OkUsage) =>
     (left(findKind(usage, 'session')) ?? 100) >= SESSION_ROOM && !usage.limits.some((limit) => !limit.kind && isUsedUp(limit));
   const hasWeekly = (usage: OkUsage) => findKind(usage, 'weekly') !== undefined;
-  const rankUrgency = (usage: OkUsage) => urgency(findKind(usage, 'weekly') ?? findKind(usage, 'session'), now);
+  const rankSession = (usage: OkUsage) => urgency(findKind(usage, 'session'), now);
   const [best] = [...usable].sort(
     (first, second) =>
       Number(hasRoom(second)) - Number(hasRoom(first)) ||
       Number(hasWeekly(second)) - Number(hasWeekly(first)) ||
-      rankUrgency(second) - rankUrgency(first),
+      (hasWeekly(first) ? byDeadline(findKind(first, 'weekly')!, findKind(second, 'weekly')!) : rankSession(second) - rankSession(first)),
   );
   const weekly = findKind(best!, 'weekly');
   const session = findKind(best!, 'session');

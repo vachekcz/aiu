@@ -17,9 +17,9 @@ as usual, and the review does not wait for it.
 ## When
 
 - The work is done, the PR is open as a **draft** (`gh pr create --draft`) and
-  the checks pass on its head. The repo has no CI yet, so the checks are
-  `npm test` and `npm run typecheck`, run by the author on a clean checkout of
-  the head. Fix failures first. A draft cannot be merged, so nobody merges the
+  the checks pass on its head: the `CI Passed` check of
+  `.github/workflows/ci.yml` (typecheck, and `npm test` on macOS), which runs
+  on draft PRs too. Fix failures first. A draft cannot be merged, so nobody merges the
   PR before its findings are in. A PR that is already ready goes back with
   `gh pr ready --undo N` for the review.
 - Skip it only when the diff has nothing in [Scope](#scope), or is a
@@ -32,7 +32,8 @@ Everything the diff touches that falls under this list, plus what those
 changes claim:
 
 - code and tests: `src/`, `tests/`, `scripts/`, `package.json`,
-  `package-lock.json`, `tsconfig.json`, `vitest.config.ts`, `.gitignore`
+  `package-lock.json`, `tsconfig.json`, `vitest.config.ts`, `.gitignore`,
+  `.nvmrc`, `.github/`, `.githooks/`
 - prose: `docs/**`, `AGENTS.md`, `README.md`
 - user-visible text: CLI output and error messages in `src/cli.ts` and
   `src/render.ts`

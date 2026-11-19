@@ -38,6 +38,17 @@ describe('parseClaudeUsage', () => {
     expect(limits).toEqual([{ label: 'monthly_x', percent: 85, severity: 'critical', resetsAt: null }]);
   });
 
+  it('falls back to the group when the kind is unknown', () => {
+    const { limits } = parseClaudeUsage({
+      limits: [
+        { kind: 'five_hour', group: 'session', percent: 10 },
+        { kind: 'weekly', group: 'weekly', percent: 20, scope: null },
+        { kind: 'weekly_model', group: 'weekly', percent: 30, scope: { model: { display_name: 'Fable' } } },
+      ],
+    });
+    expect(limits.map((limit) => limit.kind)).toEqual(['session', 'weekly', 'model']);
+  });
+
   it('ignores an unknown severity value', () => {
     const { limits } = parseClaudeUsage({ limits: [{ kind: 'session', percent: 10, severity: 'purple' }] });
     expect(limits[0]?.severity).toBe('normal');

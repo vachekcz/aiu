@@ -126,6 +126,7 @@ function whenFree(at: Date | null, now: Date): string {
 }
 
 function providerLine(entry: Advice['providers'][number], now: Date): string {
+  if (entry.noData) return 'no 5h or weekly limit data to recommend from';
   if (entry.accountId === null) {
     const who = entry.availableAccountId ? `${entry.availableAccountId} frees up ` : 'an account frees up ';
     return `nothing usable now; ${who}${whenFree(entry.availableAt ?? null, now)}`;

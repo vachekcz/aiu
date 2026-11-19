@@ -115,6 +115,27 @@ describe('recommend', () => {
     ]);
   });
 
+  it('ranks by the weekly allowance even when another account has only a 5h window', () => {
+    const advice = recommend(
+      [ok('claude', 'no-weekly', [limit('session', '5h', 10, 3)]), claude('weekly-urgent', 0, 20, 5)],
+      now,
+    );
+    expect(advice.providers[0]?.accountId).toBe('claude/weekly-urgent');
+  });
+
+  it('never recommends an account without any 5h or weekly data', () => {
+    const advice = recommend(
+      [ok('claude', 'unknown-kinds', [limit(undefined, 'five_hour', 0, 3)]), ok('claude', 'empty', []), claude('real', 95, 50, 50)],
+      now,
+    );
+    expect(advice.providers[0]?.accountId).toBe('claude/real');
+  });
+
+  it('reports missing limit data instead of recommending a blind account', () => {
+    const advice = recommend([ok('claude', 'empty', [])], now);
+    expect(advice.providers).toEqual([{ provider: 'claude', accountId: null, noData: true }]);
+  });
+
   it('returns nothing for no accounts', () => {
     expect(recommend([], now)).toEqual({ providers: [], models: [] });
   });

@@ -26,6 +26,13 @@ const SEVERITIES: readonly Severity[] = ['normal', 'warning', 'critical'];
 
 const KINDS: Record<string, LimitKind> = { session: 'session', weekly_all: 'weekly', weekly_scoped: 'model' };
 
+/** Fallback for kinds this version does not know: the coarser group still says what the limit gates. */
+function kindFromGroup(group: string | null, scope: unknown): LimitKind | undefined {
+  if (group === 'session') return 'session';
+  if (group === 'weekly') return asRecord(scope) ? 'model' : 'weekly';
+  return undefined;
+}
+
 function labelFor(kind: string, scope: unknown): string {
   if (kind === 'session') return '5h';
   if (kind === 'weekly_all') return 'Week (all)';
@@ -41,7 +48,8 @@ function limitFromEntry(entry: unknown): Limit | null {
   const percent = asNumber(record?.percent);
   if (!record || percent === null) return null;
   const severity = asString(record.severity);
-  const kind = KINDS[asString(record.kind) ?? ''];
+  const rawKind = asString(record.kind) ?? '';
+  const kind = Object.hasOwn(KINDS, rawKind) ? KINDS[rawKind] : kindFromGroup(asString(record.group), record.scope);
   return {
     label: labelFor(asString(record.kind) ?? 'limit', record.scope),
     ...(kind ? { kind } : {}),

@@ -5,8 +5,11 @@ import { accountId, type AccountUsage, type Limit, type ProviderId } from './typ
  *
  * Unused weekly allowance is lost at the weekly reset, so the most urgent account is the one that
  * would have to burn the most percent per hour to use up what is left: weekly % left / hours to reset.
- * Accounts whose 5h or weekly limit is used up cannot be used and are skipped. Accounts with less
- * than SESSION_ROOM % of their 5h window left come last, since they would stop again within minutes.
+ * Accounts whose 5h or weekly limit is used up cannot be used and are skipped, and so are accounts
+ * that report neither limit (nothing to judge them by). Accounts with less than SESSION_ROOM % of
+ * their 5h window left come last, since they would stop again within minutes. Accounts without a
+ * weekly limit come after those with one and are ranked among themselves by their 5h window, since
+ * a 5h window's % per hour is not comparable with a weekly one.
  */
 
 export interface ProviderAdvice {
@@ -19,6 +22,8 @@ export interface ProviderAdvice {
   /** When nothing is usable: the earliest moment an account frees up, and which one. */
   availableAt?: Date | null;
   availableAccountId?: string;
+  /** No account reports a 5h or weekly limit, so there is nothing to recommend from. */
+  noData?: true;
 }
 
 /** A model-specific limit (e.g. Claude "Week (Fable)") that is used up on at least one account. */
@@ -61,14 +66,18 @@ function earliest<T>(entries: T[], dateOf: (entry: T) => Date | null): T | undef
     .sort((first, second) => dateOf(first)!.getTime() - dateOf(second)!.getTime())[0];
 }
 
-function urgency(usage: OkUsage, now: Date): number {
-  const gate = findKind(usage, 'weekly') ?? findKind(usage, 'session');
+/** % per hour this limit would have to be used at to use up what is left before its reset. */
+function urgency(gate: Limit | undefined, now: Date): number {
   const remaining = left(gate) ?? 0;
   const hours = gate?.resetsAt ? Math.max((gate.resetsAt.getTime() - now.getTime()) / HOUR_MS, 1 / 60) : UNKNOWN_RESET_HOURS;
   return remaining / hours;
 }
 
-function adviseProvider(provider: ProviderId, usages: OkUsage[], now: Date): ProviderAdvice {
+const hasGate = (usage: OkUsage): boolean => findKind(usage, 'weekly') !== undefined || findKind(usage, 'session') !== undefined;
+
+function adviseProvider(provider: ProviderId, allUsages: OkUsage[], now: Date): ProviderAdvice {
+  const usages = allUsages.filter(hasGate);
+  if (usages.length === 0) return { provider, accountId: null, noData: true };
   const usable = usages.filter((usage) => !usage.limits.some((limit) => limit.kind !== 'model' && limit.kind && isUsedUp(limit)));
   if (usable.length === 0) {
     const first = earliest(usages, freesUpAt);
@@ -80,8 +89,13 @@ function adviseProvider(provider: ProviderId, usages: OkUsage[], now: Date): Pro
     };
   }
   const hasRoom = (usage: OkUsage) => (left(findKind(usage, 'session')) ?? 100) >= SESSION_ROOM;
+  const hasWeekly = (usage: OkUsage) => findKind(usage, 'weekly') !== undefined;
+  const rankUrgency = (usage: OkUsage) => urgency(findKind(usage, 'weekly') ?? findKind(usage, 'session'), now);
   const [best] = [...usable].sort(
-    (first, second) => Number(hasRoom(second)) - Number(hasRoom(first)) || urgency(second, now) - urgency(first, now),
+    (first, second) =>
+      Number(hasRoom(second)) - Number(hasRoom(first)) ||
+      Number(hasWeekly(second)) - Number(hasWeekly(first)) ||
+      rankUrgency(second) - rankUrgency(first),
   );
   const weekly = findKind(best!, 'weekly');
   const sessionLeft = left(findKind(best!, 'session'));

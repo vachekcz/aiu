@@ -280,6 +280,13 @@ describe('renderRecommendation', () => {
     expect(output).toContain('Week (Fable) (Claude)  still available on claude/b');
   });
 
+  it('says when a provider reports no limit data', () => {
+    const output = renderRecommendation([{ account: { provider: 'claude', label: 'x' }, status: 'ok', limits: [] }], now, {
+      color: false,
+    });
+    expect(output).toContain('Claude  no 5h or weekly limit data to recommend from');
+  });
+
   it('is empty without usable data', () => {
     expect(renderRecommendation([usages[1]!], now, { color: false })).toBe('');
   });

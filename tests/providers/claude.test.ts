@@ -44,9 +44,17 @@ describe('parseClaudeUsage', () => {
         { kind: 'five_hour', group: 'session', percent: 10 },
         { kind: 'weekly', group: 'weekly', percent: 20, scope: null },
         { kind: 'weekly_model', group: 'weekly', percent: 30, scope: { model: { display_name: 'Fable' } } },
+        { kind: 'weekly_model', group: 'weekly', percent: 40, scope: { model: { display_name: 'Opus' } } },
+        { kind: 'weekly_surface', group: 'weekly', percent: 50, scope: { surface: 'web' } },
       ],
     });
-    expect(limits.map((limit) => limit.kind)).toEqual(['session', 'weekly', 'model']);
+    expect(limits.map((limit) => [limit.label, limit.kind])).toEqual([
+      ['five_hour', 'session'],
+      ['weekly', 'weekly'],
+      ['Week (Fable)', 'model'],
+      ['Week (Opus)', 'model'],
+      ['weekly_surface', undefined],
+    ]);
   });
 
   it('ignores an unknown severity value', () => {

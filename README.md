@@ -26,8 +26,9 @@ aiu remove claude/personal           # forget an account
 
 Below the table, `aiu` recommends which account to use now per service: the one whose unused weekly
 allowance lapses fastest (weekly % left per hour until its reset), skipping accounts whose 5h or weekly
-limit is used up. Accounts with less than 10 % of their 5h window left come last, because they would stop
-again within minutes. When no account is usable, it says which one frees up first. It also lists model
+limit is used up, and accounts that report neither limit. Accounts with less than 10 % of their 5h window
+left come last, because they would stop again within minutes, and accounts without a weekly limit come after
+those with one. When no account reports a 5h or weekly limit, it says so instead of guessing. When no account is usable, it says which one frees up first. It also lists model
 limits (e.g. Fable) that are used up on at least one account: where they are still available, or when
 they free up first.
 

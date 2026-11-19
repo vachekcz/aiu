@@ -26,21 +26,27 @@ const SEVERITIES: readonly Severity[] = ['normal', 'warning', 'critical'];
 
 const KINDS: Record<string, LimitKind> = { session: 'session', weekly_all: 'weekly', weekly_scoped: 'model' };
 
-/** Fallback for kinds this version does not know: the coarser group still says what the limit gates. */
+const modelName = (scope: unknown): string | null =>
+  asString(asRecord(asRecord(asRecord(scope)?.model))?.display_name);
+
+/**
+ * Fallback for kinds this version does not know: the coarser group still says what the limit gates.
+ * A weekly limit scoped to something other than a model (e.g. a surface) stays unclassified.
+ */
 function kindFromGroup(group: string | null, scope: unknown): LimitKind | undefined {
   if (group === 'session') return 'session';
-  if (group === 'weekly') return asRecord(scope) ? 'model' : 'weekly';
-  return undefined;
+  if (group !== 'weekly') return undefined;
+  if (!asRecord(scope)) return 'weekly';
+  return modelName(scope) ? 'model' : undefined;
 }
 
 function labelFor(kind: string, scope: unknown): string {
   if (kind === 'session') return '5h';
   if (kind === 'weekly_all') return 'Week (all)';
-  if (kind === 'weekly_scoped') {
-    const model = asString(asRecord(asRecord(asRecord(scope)?.model))?.display_name);
-    return model ? `Week (${model})` : 'Week (scoped)';
-  }
-  return kind;
+  const model = modelName(scope);
+  if (kind === 'weekly_scoped') return model ? `Week (${model})` : 'Week (scoped)';
+  // Unknown kind scoped to a model: name it by the model, so two such models do not share one label.
+  return model ? `Week (${model})` : kind;
 }
 
 function limitFromEntry(entry: unknown): Limit | null {

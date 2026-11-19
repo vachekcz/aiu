@@ -180,7 +180,7 @@ function adviseModels(provider: ProviderId, usages: OkUsage[]): ModelAdvice[] {
  * The model a model-specific limit belongs to: "Fable" from Claude's "Week (Fable)", "GPT-6 Pro" from
  * ChatGPT's "GPT-6 Pro 5h" / "GPT-6 Pro Week"; any other label (e.g. "gpt-6-astra") is the model itself.
  */
-export function modelName(label: string): string {
+function modelName(label: string): string {
   const scoped = label.match(/\(([^)]+)\)$/)?.[1];
   if (scoped) return scoped;
   return label.replace(/ (?:Week|\d+[mhd])$/, '');

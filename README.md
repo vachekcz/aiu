@@ -25,7 +25,7 @@ aiu remove claude/personal           # forget an account
 ```
 
 Below the table, `aiu` recommends which account to use now per service: the one whose weekly limit
-resets first (an unknown reset counts as last), so no allowance lapses unused, skipping accounts whose 5h
+resets first (an unknown reset counts as last), so as little allowance as possible lapses unused, skipping accounts whose 5h
 or weekly limit is used up, and accounts that report neither limit. Accounts with less than 10 % of their 5h window
 left come last, because they would stop again within minutes, and accounts without a weekly limit come after
 those with one. When no account reports a 5h or weekly limit, it says so instead of guessing. When no account is usable, it says which one frees up first. It also lists model
@@ -37,7 +37,8 @@ Last comes the `Plan`: per service, every account with weekly allowance left, in
 leads and is the only row marked `now →`; no row is when nothing is usable now. A row adds
 `with Fable first` when that account still has room for a model with its own limit, and when its 5h window
 frees up if it is used up. Below the rows, `Fable back:` lists when a used-up model limit resets on each
-account. A service with nothing usable gets one line saying when an account frees up.
+account. When no account of a service has weekly allowance left and none is usable, it gets one line
+saying when an account frees up.
 
 `aiu --json` prints the same data for scripts: each limit carries a `kind` (`session`, `weekly` or
 `model`) when known, and a top-level `recommendation` object holds the advice (`providers`, `models` and

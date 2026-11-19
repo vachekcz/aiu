@@ -39,6 +39,16 @@ npm run typecheck   # tsc --noEmit
   bundle `pr-review` and keeps its Czech messages, so it can be updated by
   copying the new version.
 
+## Git workflow
+
+- Never commit directly to `main`; work goes on a branch and through a PR.
+  Branch prefixes: `feature/`, `fix/`, `refactor/`, `docs/`.
+- Commits are atomic (one logical change), in English, imperative mood
+  (`add`, `fix`, `drop`, not `added` or `adding`).
+- Never resolve a review comment silently. When you fix or reject one, reply
+  in its thread with what changed and in which commit (or why it won't be
+  fixed), then mark the thread resolved.
+
 ## Finishing
 
 1. Run `npm test` and `npm run typecheck` on the final head.

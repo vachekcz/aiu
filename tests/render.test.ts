@@ -4,11 +4,12 @@ import {
   formatReset,
   renderRecommendation,
   renderJson,
+  renderPlan,
   renderTable,
   severityForPercent,
   shouldUseColor,
 } from '../src/render.ts';
-import type { AccountUsage } from '../src/types.ts';
+import type { AccountUsage, Limit } from '../src/types.ts';
 
 const now = new Date('2026-11-18T22:00:00Z');
 const minutes = (count: number) => new Date(now.getTime() + count * 60_000);
@@ -206,6 +207,13 @@ describe('renderJson', () => {
             availableAccountId: 'claude/personal',
           },
         ],
+        plan: [
+          {
+            provider: 'claude',
+            steps: [],
+            back: [{ label: 'Week (Fable)', accountId: 'claude/personal', at: '2026-11-20T18:00:00.000Z' }],
+          },
+        ],
       },
     });
   });
@@ -330,5 +338,70 @@ describe('renderRecommendation', () => {
 
   it('is empty without usable data', () => {
     expect(renderRecommendation([usages[1]!], now, { color: false })).toBe('');
+  });
+});
+
+describe('renderPlan', () => {
+  const at = (hours: number) => new Date(now.getTime() + hours * 3_600_000);
+  const account = (label: string, limits: Limit[]): AccountUsage => ({ account: { provider: 'claude', label }, status: 'ok', limits });
+  const week = (percent: number, hours: number): Limit => ({ label: 'Week (all)', kind: 'weekly', percent, resetsAt: at(hours), severity: 'normal' });
+  const fable = (percent: number, hours: number): Limit => ({ label: 'Week (Fable)', kind: 'model', percent, resetsAt: at(hours), severity: 'normal' });
+  const session = (percent: number, hours: number): Limit => ({ label: '5h', kind: 'session', percent, resetsAt: at(hours), severity: 'normal' });
+
+  it('lists accounts by deadline with model and 5h notes, then providers with nothing usable', () => {
+    const output = renderPlan(
+      [
+        account('c', [session(33, 3), week(74, 106), fable(60, 106)]),
+        account('a', [session(3, 3), week(57, 5), fable(100, 5)]),
+        account('b', [session(100, 2), week(73, 33), fable(100, 33)]),
+        {
+          account: { provider: 'chatgpt', label: 'pro' },
+          status: 'ok',
+          limits: [{ label: 'Week', kind: 'weekly', percent: 100, resetsAt: at(71), severity: 'critical' }],
+        },
+      ],
+      now,
+      { color: false },
+    );
+    expect(output.split('\n')).toEqual([
+      'Plan',
+      '  Claude   now → Thu 04:00  (5h 0m)   claude/a  burn 43 %',
+      '               → Fri 08:00  (1d 9h)   claude/b  burn 27 %  5h window frees up in 2h 0m',
+      '               → Mon 09:00  (4d 10h)  claude/c  burn 26 %  with Fable first',
+      '           Fable back: Thu 04:00 on claude/a · Fri 08:00 on claude/b',
+      '  ChatGPT  nothing usable · back in 2d 23h (Sat 22:00) on chatgpt/pro',
+    ]);
+  });
+
+  it('starts with the recommended account and says "now" only when one is usable', () => {
+    const roomy = renderPlan([account('low-room', [session(95, 1), week(50, 10)]), account('roomy', [session(0, 1), week(20, 40)])], now, {
+      color: false,
+    });
+    expect(roomy).toContain('now → Fri 15:00');
+    expect(roomy.indexOf('claude/roomy')).toBeLessThan(roomy.indexOf('claude/low-room'));
+    const blocked = renderPlan([account('x', [session(100, 1), week(50, 10)])], now, { color: false });
+    expect(blocked).not.toContain('now');
+    expect(blocked).toContain('  Claude      → Thu 09:00');
+  });
+
+  it('renders an unknown weekly reset', () => {
+    const output = renderPlan([account('x', [{ ...week(10, 0), resetsAt: null }])], now, { color: false });
+    expect(output).toContain('now → unknown');
+    expect(output).toContain('claude/x  burn 90 %');
+  });
+
+  it('names every model with room', () => {
+    const opus: Limit = { ...fable(10, 50), label: 'Week (Opus)' };
+    const output = renderPlan([account('x', [week(0, 50), fable(0, 50), opus])], now, { color: false });
+    expect(output).toContain('burn 100 %  with Fable, Opus first');
+  });
+
+  it('skips providers without a weekly limit and is empty when none is left', () => {
+    const grok: AccountUsage = {
+      account: { provider: 'grok', label: 'free' },
+      status: 'ok',
+      limits: [{ label: '2h', kind: 'session', percent: 25, resetsAt: null, severity: 'normal' }],
+    };
+    expect(renderPlan([grok], now, { color: false })).toBe('');
   });
 });

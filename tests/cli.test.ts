@@ -82,12 +82,26 @@ describe('aiu', () => {
     expect(stdout).toContain(' 42 %');
   });
 
+  it('prints the plan after the recommendation', async () => {
+    accounts = [{ provider: 'claude', label: 'personal' }];
+    credentials.set('claude/personal', { token: 't' });
+    const weeklyProvider: Provider<unknown> = {
+      ...(fakeProvider as Provider<unknown>),
+      fetchUsage: async () => ({
+        limits: [{ label: 'Week (all)', kind: 'weekly', percent: 40, resetsAt: new Date(NOW.getTime() + 10 * 3_600_000), severity: 'normal' }],
+      }),
+    };
+    expect(await main([], { ...deps(), providers: { claude: weeklyProvider } })).toBe(0);
+    expect(stdout.indexOf('Plan')).toBeGreaterThan(stdout.indexOf('Recommendation'));
+    expect(stdout).toContain('claude/personal  burn 60 %');
+  });
+
   it('prints valid JSON with --json when no accounts are configured', async () => {
     expect(await main(['--json'], deps())).toBe(0);
     expect(JSON.parse(stdout)).toEqual({
       generatedAt: NOW.toISOString(),
       accounts: [],
-      recommendation: { providers: [], models: [] },
+      recommendation: { providers: [], models: [], plan: [] },
     });
   });
 

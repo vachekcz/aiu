@@ -27,7 +27,7 @@ const claude = (label: string, session: number, weekly: number, weeklyResetsIn: 
   ]);
 
 describe('recommend', () => {
-  it('picks the account whose unused weekly allowance lapses fastest', () => {
+  it('picks the account whose weekly allowance lapses first', () => {
     const advice = recommend(
       [
         claude('soon', 10, 56, 17.65), // 44 % left, lapses in under a day
@@ -39,6 +39,17 @@ describe('recommend', () => {
     expect(advice.providers).toEqual([
       expect.objectContaining({ provider: 'claude', accountId: 'claude/soon', weeklyLeft: 44, sessionLeft: 90 }),
     ]);
+  });
+
+  it('uses the account whose allowance lapses first, even if another needs more % per hour', () => {
+    // X: 5 % left for 2h (2.5 %/h). Y: 60 % left for 10h (6 %/h). Deadline order loses nothing.
+    const advice = recommend([claude('y', 0, 40, 10), claude('x', 0, 95, 2)], now);
+    expect(advice.providers[0]?.accountId).toBe('claude/x');
+  });
+
+  it('puts an unknown weekly reset after every known one', () => {
+    const advice = recommend([ok('claude', 'unknown', [limit('weekly', 'Week (all)', 10, null)]), claude('known', 0, 10, 150)], now);
+    expect(advice.providers[0]?.accountId).toBe('claude/known');
   });
 
   it('skips accounts whose 5h or weekly limit is used up', () => {
@@ -169,6 +180,77 @@ describe('recommend', () => {
   });
 
   it('returns nothing for no accounts', () => {
-    expect(recommend([], now)).toEqual({ providers: [], models: [] });
+    expect(recommend([], now)).toEqual({ providers: [], models: [], plan: [] });
+  });
+});
+
+describe('plan', () => {
+  it('orders accounts by weekly reset and marks free model limits and blocked 5h windows', () => {
+    const { plan } = recommend(
+      [
+        claude('late', 33, 74, 106, 60), // Fable 40 % left
+        claude('first', 3, 57, 5), // Fable used up
+        ok('claude', 'blocked', [limit('session', '5h', 100, 2), limit('weekly', 'Week (all)', 73, 33), limit('model', 'Week (Fable)', 100, 33)]),
+      ],
+      now,
+    );
+    expect(plan).toEqual([
+      {
+        provider: 'claude',
+        steps: [
+          { accountId: 'claude/first', weeklyLeft: 43, resetsAt: inHours(5), premium: [] },
+          { accountId: 'claude/blocked', weeklyLeft: 27, resetsAt: inHours(33), premium: [], sessionBlocked: { label: '5h', resetsAt: inHours(2) } },
+          { accountId: 'claude/late', weeklyLeft: 26, resetsAt: inHours(106), premium: ['Fable'] },
+        ],
+        back: [
+          { label: 'Week (Fable)', accountId: 'claude/first', at: inHours(5) },
+          { label: 'Week (Fable)', accountId: 'claude/blocked', at: inHours(33) },
+        ],
+      },
+    ]);
+  });
+
+  it('puts an unknown weekly reset last and skips a weekly limit without percent', () => {
+    const { plan } = recommend(
+      [
+        ok('claude', 'unknown', [limit('weekly', 'Week (all)', 10, null)]),
+        ok('claude', 'no-percent', [limit('weekly', 'Week (all)', null, 5)]),
+        claude('known', 0, 10, 150),
+      ],
+      now,
+    );
+    expect(plan[0]?.steps.map((step) => step.accountId)).toEqual(['claude/known', 'claude/unknown']);
+  });
+
+  it('lists every model limit with room', () => {
+    const { plan } = recommend(
+      [ok('claude', 'x', [limit('weekly', 'Week (all)', 0, 50), limit('model', 'Week (Fable)', 0, 50), limit('model', 'Week (Opus)', 10, 50)])],
+      now,
+    );
+    expect(plan[0]?.steps[0]?.premium).toEqual(['Fable', 'Opus']);
+  });
+
+  it('names a model once and only when none of its windows is used up', () => {
+    const pro = (fiveHour: number, week: number) =>
+      ok('chatgpt', 'pro', [limit('weekly', 'Week', 40, 50), limit('model', 'GPT-6 Pro 5h', fiveHour, 2), limit('model', 'GPT-6 Pro Week', week, 50)]);
+    expect(recommend([pro(100, 30)], now).plan[0]?.steps[0]?.premium).toEqual([]);
+    expect(recommend([pro(10, 30)], now).plan[0]?.steps[0]?.premium).toEqual(['GPT-6 Pro']);
+  });
+
+  it('keeps 5h-blocked accounts in the plan while the recommendation finds nothing usable', () => {
+    const advice = recommend([ok('claude', 'x', [limit('session', '5h', 100, 2), limit('weekly', 'Week (all)', 50, 50)])], now);
+    expect(advice.providers[0]?.accountId).toBeNull();
+    expect(advice.plan[0]?.steps.map((step) => step.accountId)).toEqual(['claude/x']);
+  });
+
+  it('moves the recommended account first when the earliest deadline has no room in its 5h window', () => {
+    const advice = recommend([claude('low-room', 95, 50, 10), claude('roomy', 0, 20, 40)], now);
+    expect(advice.providers[0]?.accountId).toBe('claude/roomy');
+    expect(advice.plan[0]?.steps.map((step) => step.accountId)).toEqual(['claude/roomy', 'claude/low-room']);
+  });
+
+  it('starts with the recommended account when it has room', () => {
+    const advice = recommend([claude('a', 0, 40, 10), claude('b', 0, 95, 2), claude('c', 50, 0, 100)], now);
+    expect(advice.plan[0]?.steps[0]?.accountId).toBe(advice.providers[0]?.accountId);
   });
 });

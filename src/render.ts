@@ -1,4 +1,4 @@
-import { recommend, type Advice } from './recommend.ts';
+import { recommend, type Advice, type ModelBack, type PlanStep } from './recommend.ts';
 import { accountId, type AccountUsage, type Limit, type ProviderId, type Severity } from './types.ts';
 
 const BAR_CELLS = 10;
@@ -176,6 +176,82 @@ export function renderRecommendation(usages: AccountUsage[], now: Date, options:
     );
   }
   return lines.join('\n');
+}
+
+/**
+ * "Fable" from "Week (Fable)"; any other label stays whole, so "GPT-6 Pro 5h" still says which of the
+ * model's windows comes back.
+ */
+const backName = (label: string): string => label.match(/\(([^)]+)\)$/)?.[1] ?? label;
+
+function stepNote(step: PlanStep, now: Date): string {
+  const notes = [
+    step.premium.length > 0 ? `with ${step.premium.join(', ')} first` : null,
+    step.sessionBlocked
+      ? `${sessionName(step.sessionBlocked.label)} frees up ${step.sessionBlocked.resetsAt ? relative(step.sessionBlocked.resetsAt, now) : 'at an unknown time'}`
+      : null,
+  ];
+  return notes.filter((note) => note !== null).join(' · ');
+}
+
+/** `recommended` is the account `Recommendation` names; only its row says "now". */
+function stepLines(steps: PlanStep[], recommended: string | null, now: Date): string[] {
+  const cells = steps.map((step) => ({
+    lead: step.accountId === recommended ? 'now →' : '    →',
+    deadline: step.resetsAt ? formatReset(step.resetsAt) : 'unknown',
+    countdown: step.resetsAt ? `(${formatCountdown(step.resetsAt, now)})` : '',
+    account: step.accountId,
+    burn: `burn ${Math.floor(step.weeklyLeft)} %`,
+    note: stepNote(step, now),
+  }));
+  const width = (key: 'deadline' | 'countdown' | 'account' | 'burn') => Math.max(...cells.map((cell) => cell[key].length));
+  const widths = { deadline: width('deadline'), countdown: width('countdown'), account: width('account'), burn: width('burn') };
+  return cells.map((cell) =>
+    [
+      `${cell.lead} ${cell.deadline.padEnd(widths.deadline)}`,
+      cell.countdown.padEnd(widths.countdown),
+      cell.account.padEnd(widths.account),
+      cell.burn.padEnd(widths.burn),
+      cell.note,
+    ]
+      .join('  ')
+      .trimEnd(),
+  );
+}
+
+function backLines(back: ModelBack[]): string[] {
+  const labels = [...new Set(back.map((entry) => entry.label))];
+  return labels.map((label) => {
+    const entries = back
+      .filter((entry) => entry.label === label)
+      .map((entry) => `${entry.at ? formatReset(entry.at) : 'unknown'} on ${entry.accountId}`);
+    return `${backName(label)} back: ${entries.join(' · ')}`;
+  });
+}
+
+/**
+ * Per provider, the accounts to burn in order of their weekly reset (see recommend.ts), the model
+ * limits that come back later, or when a provider has nothing usable. Empty when there is no plan.
+ */
+export function renderPlan(usages: AccountUsage[], now: Date, options: { color: boolean }): string {
+  const advice = recommend(usages, now);
+  const blocks = advice.plan.flatMap((plan) => {
+    const provider = advice.providers.find((entry) => entry.provider === plan.provider);
+    if (plan.steps.length > 0) {
+      const lines = [...stepLines(plan.steps, provider?.accountId ?? null, now), ...backLines(plan.back)];
+      return [{ name: PROVIDER_NAMES[plan.provider], lines }];
+    }
+    if (!provider || provider.accountId !== null || provider.noData) return [];
+    const where = provider.availableAccountId ? ` on ${provider.availableAccountId}` : '';
+    return [{ name: PROVIDER_NAMES[plan.provider], lines: [`nothing usable · back ${whenFree(provider.availableAt ?? null, now)}${where}`] }];
+  });
+  if (blocks.length === 0) return '';
+  const nameWidth = Math.max(...blocks.map((block) => block.name.length));
+  const heading = options.color ? `${ANSI.bold}Plan${ANSI.reset}` : 'Plan';
+  const body = blocks.flatMap((block) =>
+    block.lines.map((line, index) => `  ${(index === 0 ? block.name : '').padEnd(nameWidth)}  ${line}`),
+  );
+  return [heading, ...body].join('\n');
 }
 
 export function renderJson(usages: AccountUsage[], now: Date): string {

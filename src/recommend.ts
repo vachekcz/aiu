@@ -3,14 +3,16 @@ import { accountId, type AccountUsage, type Limit, type ProviderId } from './typ
 /**
  * Which account to work on now so that as little of each subscription as possible lapses unused.
  *
- * Unused weekly allowance is lost at the weekly reset, so the most urgent account is the one that
- * would have to burn the most percent per hour to use up what is left: weekly % left / hours to reset.
+ * Unused weekly allowance is lost at the weekly reset, so accounts are worked through by deadline:
+ * the one whose weekly limit resets first comes first (unknown resets last). Deadline order loses
+ * nothing whenever everything can be used in time, unlike ranking by % per hour needed: with X at
+ * 5 % left for 2h and Y at 60 % left for 10h, Y needs more per hour, but working on Y lets X's 5 %
+ * lapse, while X first takes an hour and still leaves 9h for Y.
  * Accounts whose 5h or weekly limit is used up cannot be used and are skipped, and so are accounts
  * that report neither limit (nothing to judge them by). Accounts with less than SESSION_ROOM % of
  * their 5h window left come last, since they would stop again within minutes, and so do accounts
- * with a used-up limit of unknown kind. Accounts without a
- * weekly limit come after those with one and are ranked among themselves by their 5h window, since
- * a 5h window's % per hour is not comparable with a weekly one.
+ * with a used-up limit of unknown kind. Accounts without a weekly limit come after those with one
+ * and are ranked among themselves by their 5h window's % per hour, since they have no deadline.
  */
 
 export interface ProviderAdvice {
@@ -39,9 +41,39 @@ export interface ModelAdvice {
   availableAccountId?: string;
 }
 
+/** One account in the plan: burn its weekly allowance before `resetsAt`. */
+export interface PlanStep {
+  accountId: string;
+  /** Weekly % left, floored only when rendered. */
+  weeklyLeft: number;
+  /** Weekly reset: the deadline for this step. */
+  resetsAt: Date | null;
+  /** Models (see `modelName`) with room in every one of their limits on this account, e.g. ["Fable"]. */
+  premium: string[];
+  /** Set only when the 5h window is used up: its label and reset. */
+  sessionBlocked?: { label: string; resetsAt: Date | null };
+}
+
+/** A model limit used up on one account, and when it comes back there. */
+export interface ModelBack {
+  label: string;
+  accountId: string;
+  at: Date | null;
+}
+
+/** Accounts of one provider in the order to burn them (earliest weekly reset first). */
+export interface ProviderPlan {
+  provider: ProviderId;
+  steps: PlanStep[];
+  /** Model limits used up on an account of this provider, sorted by `at`, unknown last. */
+  back: ModelBack[];
+}
+
 export interface Advice {
   providers: ProviderAdvice[];
   models: ModelAdvice[];
+  /** Same provider order as `providers`. */
+  plan: ProviderPlan[];
 }
 
 const SESSION_ROOM = 10;
@@ -76,6 +108,13 @@ function urgency(gate: Limit | undefined, now: Date): number {
   return remaining / hours;
 }
 
+/** Earlier reset first; an unknown reset sorts after every known one. */
+function byDeadline(first: Pick<Limit, 'resetsAt'>, second: Pick<Limit, 'resetsAt'>): number {
+  const time = (limit: Pick<Limit, 'resetsAt'>) => limit.resetsAt?.getTime() ?? Number.POSITIVE_INFINITY;
+  const difference = time(first) - time(second);
+  return Number.isNaN(difference) ? 0 : difference;
+}
+
 const hasGate = (usage: OkUsage): boolean => findKind(usage, 'weekly') !== undefined || findKind(usage, 'session') !== undefined;
 
 function adviseProvider(provider: ProviderId, allUsages: OkUsage[], now: Date): ProviderAdvice {
@@ -95,12 +134,12 @@ function adviseProvider(provider: ProviderId, allUsages: OkUsage[], now: Date): 
   const hasRoom = (usage: OkUsage) =>
     (left(findKind(usage, 'session')) ?? 100) >= SESSION_ROOM && !usage.limits.some((limit) => !limit.kind && isUsedUp(limit));
   const hasWeekly = (usage: OkUsage) => findKind(usage, 'weekly') !== undefined;
-  const rankUrgency = (usage: OkUsage) => urgency(findKind(usage, 'weekly') ?? findKind(usage, 'session'), now);
+  const rankSession = (usage: OkUsage) => urgency(findKind(usage, 'session'), now);
   const [best] = [...usable].sort(
     (first, second) =>
       Number(hasRoom(second)) - Number(hasRoom(first)) ||
       Number(hasWeekly(second)) - Number(hasWeekly(first)) ||
-      rankUrgency(second) - rankUrgency(first),
+      (hasWeekly(first) ? byDeadline(findKind(first, 'weekly')!, findKind(second, 'weekly')!) : rankSession(second) - rankSession(first)),
   );
   const weekly = findKind(best!, 'weekly');
   const session = findKind(best!, 'session');
@@ -137,12 +176,64 @@ function adviseModels(provider: ProviderId, usages: OkUsage[]): ModelAdvice[] {
   });
 }
 
+/**
+ * The model a model-specific limit belongs to: "Fable" from Claude's "Week (Fable)", "GPT-6 Pro" from
+ * ChatGPT's "GPT-6 Pro 5h" / "GPT-6 Pro Week"; any other label (e.g. "gpt-6-astra") is the model itself.
+ */
+function modelName(label: string): string {
+  const scoped = label.match(/\(([^)]+)\)$/)?.[1];
+  if (scoped) return scoped;
+  return label.replace(/ (?:Week|\d+[mhd])$/, '');
+}
+
+function planProvider(provider: ProviderId, usages: OkUsage[]): ProviderPlan {
+  const steps = usages
+    .flatMap((usage): PlanStep[] => {
+      const weekly = findKind(usage, 'weekly');
+      if (!weekly || weekly.percent === null || isUsedUp(weekly)) return [];
+      const session = findKind(usage, 'session');
+      const modelLimits = usage.limits.filter((limit) => limit.kind === 'model');
+      const blocked = new Set(modelLimits.filter(isUsedUp).map((limit) => modelName(limit.label)));
+      const premium = [...new Set(modelLimits.map((limit) => modelName(limit.label)))].filter((model) => !blocked.has(model));
+      return [
+        {
+          accountId: accountId(usage.account),
+          weeklyLeft: left(weekly)!,
+          resetsAt: weekly.resetsAt,
+          premium,
+          ...(session && isUsedUp(session) ? { sessionBlocked: { label: session.label, resetsAt: session.resetsAt } } : {}),
+        },
+      ];
+    })
+    .sort(byDeadline);
+  const back = usages
+    .flatMap((usage) =>
+      usage.limits
+        .filter((limit) => limit.kind === 'model' && isUsedUp(limit))
+        .map((limit): ModelBack => ({ label: limit.label, accountId: accountId(usage.account), at: limit.resetsAt })),
+    )
+    .sort((first, second) => byDeadline({ resetsAt: first.at }, { resetsAt: second.at }));
+  return { provider, steps, back };
+}
+
 export function recommend(usages: AccountUsage[], now: Date): Advice {
   const okUsages = usages.filter((usage): usage is OkUsage => usage.status === 'ok');
   const providers = [...new Set(okUsages.map((usage) => usage.account.provider))];
   const byProvider = (provider: ProviderId) => okUsages.filter((usage) => usage.account.provider === provider);
+  const advice = providers.map((provider) => adviseProvider(provider, byProvider(provider), now));
   return {
-    providers: providers.map((provider) => adviseProvider(provider, byProvider(provider), now)),
+    providers: advice,
     models: providers.flatMap((provider) => adviseModels(provider, byProvider(provider))),
+    plan: providers.map((provider, index) => recommendedFirst(planProvider(provider, byProvider(provider)), advice[index]!.accountId)),
   };
+}
+
+/**
+ * The recommended account goes first, so the plan and `Recommendation` never disagree on what to use now.
+ * It differs from the earliest deadline only when that account has (almost) no room in its 5h window.
+ */
+function recommendedFirst(plan: ProviderPlan, recommended: string | null): ProviderPlan {
+  const index = plan.steps.findIndex((step) => step.accountId === recommended);
+  if (index <= 0) return plan;
+  return { ...plan, steps: [plan.steps[index]!, ...plan.steps.slice(0, index), ...plan.steps.slice(index + 1)] };
 }

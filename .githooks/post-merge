@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Post-merge: after a `git pull` (a merge or fast-forward, also with
+# pull.rebase=true when there are no local commits) reinstall dependencies when
+# package-lock.json changed, so the linked `aiu` never runs on stale
+# node_modules. Git ignores this hook's exit status; a failed install only
+# prints a warning. HOOK_SKIP=1 skips it, like the pre-push hook.
+
+if [ "${HOOK_SKIP:-}" = "1" ]; then
+  exit 0
+fi
+
+# ORIG_HEAD is where the branch was before the merge.
+git rev-parse -q --verify ORIG_HEAD >/dev/null || exit 0
+if git diff --quiet ORIG_HEAD HEAD -- package-lock.json; then
+  exit 0
+fi
+
+echo "package-lock.json changed — running npm ci…"
+if ! npm ci; then
+  echo "⚠ npm ci failed; run it by hand." >&2
+fi

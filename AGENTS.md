@@ -14,7 +14,7 @@ normalised `Limit` from `src/types.ts`; `src/render.ts` prints a table or JSON.
 ## Commands
 
 ```bash
-npm ci              # install; also wires the pre-push hook (postinstall)
+npm ci              # install; also wires the Git hooks in .githooks/ (postinstall)
 npm test            # vitest; also touches the real Keychain under service ai-usage-test
 npm run typecheck   # tsc --noEmit
 npm run hooks:doctor  # check that .githooks/ is wired in this worktree

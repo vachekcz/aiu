@@ -33,7 +33,7 @@ changes claim:
 
 - code and tests: `src/`, `tests/`, `scripts/`, `package.json`,
   `package-lock.json`, `tsconfig.json`, `vitest.config.ts`, `.gitignore`,
-  `.nvmrc`, `.github/`, `.githooks/`
+  `.nvmrc`, `.github/`, `.githooks/`, `.claude/settings.json`
 - prose: `docs/**`, `AGENTS.md`, `README.md`
 - user-visible text: CLI output and error messages in `src/cli.ts` and
   `src/render.ts`

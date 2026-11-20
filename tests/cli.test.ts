@@ -47,7 +47,7 @@ function deps(): Partial<CliDeps> {
     out: (text) => (stdout += `${text}\n`),
     err: (text) => (stderr += `${text}\n`),
     now: () => NOW,
-    color: false,
+    color: 'none',
     lock: async (name, fn) => {
       locks.push(name);
       return fn();

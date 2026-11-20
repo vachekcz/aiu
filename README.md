@@ -42,13 +42,18 @@ the line says when to switch back to it. When no account is usable, it says whic
 account to use now, `‖` one waiting for its 5h window (it keeps its place in the order), `✗` one whose
 weekly limit is used up (listed after the others, by when it frees up) and `!` one that failed, with the
 command that fixes it. The columns are shared by all services, so a service without a 5h window shows `—`.
-Bars are green below 50 %, yellow from 50 % and red from 80 %; a used-up limit is always red. Each
+Bars are green below 50 %, orange from 50 % and red from 80 %; a used-up limit is always red. Each
 model with its own limit (e.g. Fable) gets a column: a used-up model shows `✗ used` when it comes back with
 the weekly reset, `✗` with its own countdown when it comes back at another time, and `✗ unknown` when
 that time is not known. `Fable first` marks the first account in the
 order that still has room for it. `Burn` is how much of the weekly allowance is left, coloured by the
-pace needed to use it up before the reset: green below 1.5 %/h, yellow up to 3 %/h, red above, and the
+pace needed to use it up before the reset: green below 1.5 %/h, orange up to 3 %/h, red above, and the
 note names that pace once it is 1.5 %/h or more.
+
+Terminals that announce 24-bit colour (`COLORTERM=truecolor` or `24bit`) show exactly the shades of
+the images in this README. Other terminals get their theme's basic red, green, yellow and cyan instead,
+and `NO_COLOR` or piping the output turns colour off. The shades are made for a dark background; on a
+light one, run `COLORTERM= aiu` to keep your theme's colours.
 
 ### What it shows in other situations
 
@@ -64,7 +69,7 @@ Its used-up limits stay red, the rest of the row is dimmed.
 
 ![aiu output with one Claude account whose weekly limit is used up](docs/examples/weekly-used-up.svg)
 
-**Allowance is about to lapse.** The order stays by deadline, but `Burn` turns yellow or red when the
+**Allowance is about to lapse.** The order stays by deadline, but `Burn` turns orange or red when the
 pace needed before the reset gets high, and the note names that pace.
 
 ![aiu output with 65 % left 9 hours before the reset, shown in red as needing 7.2 %/h](docs/examples/lapse-risk.svg)

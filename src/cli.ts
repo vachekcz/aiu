@@ -175,7 +175,7 @@ async function login(deps: CliDeps, providerName: string | undefined, name: stri
     if (isNew) await deps.deleteCredentials(id).catch(() => undefined);
     throw error;
   }
-  deps.out(`Added ${id}${result.identity ? ` (${result.identity})` : ''}`);
+  deps.out(`${isNew ? 'Added' : 'Logged in again to'} ${id}${result.identity ? ` (${result.identity})` : ''}`);
   return 0;
 }
 

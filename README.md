@@ -87,7 +87,9 @@ Without `--name`, `aiu login` labels a Claude or ChatGPT account with the e-mail
 e.g. `claude/me@example.com`. Logging in again to an account `aiu` already knows, even one added under
 another label, renews that account instead of adding it twice. Pass `--name` for a shorter label, or
 when one e-mail has several subscriptions (e.g. a personal and a team plan) and each needs its own
-label. Grok does not report the e-mail, so `aiu login grok` always needs `--name`.
+label. `--name` uses exactly the label given, so to rename an account, log in with the new name and
+remove the old entry (`aiu remove claude/me@example.com`). Grok does not report the e-mail, so
+`aiu login grok` always needs `--name`.
 
 To add several accounts of the same service, switch the account in the browser
 (or use a private window) before each `aiu login`.

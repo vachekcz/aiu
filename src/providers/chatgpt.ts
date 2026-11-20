@@ -140,6 +140,7 @@ function credentialsFrom(tokens: Record<string, unknown>, previous?: ChatGptCred
 
 export const chatgptProvider: Provider<ChatGptCredentials> = {
   id: 'chatgpt',
+  reportsIdentity: true,
 
   async login(io) {
     const { verifier, challenge } = createPkce();

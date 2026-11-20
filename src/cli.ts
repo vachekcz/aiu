@@ -21,8 +21,9 @@ const REFRESH_TIMEOUT_MS = 30_000;
 const USAGE = `Usage:
   aiu                                        show usage of all accounts
   aiu --json                                 same, as JSON
-  aiu login <${SUPPORTED_PROVIDERS}> --name <label>
-                                             add or re-login an account
+  aiu login <${SUPPORTED_PROVIDERS}> [--name <label>]
+                                             add or re-login an account; the label
+                                             defaults to the login e-mail (not for grok)
   aiu accounts                               list configured accounts
   aiu remove <provider>/<label>              remove an account and its stored login`;
 
@@ -95,7 +96,7 @@ async function showUsage(deps: CliDeps, json: boolean): Promise<number> {
     return 0;
   }
   if (accounts.length === 0) {
-    deps.out(`No accounts yet. Add one with: aiu login <${SUPPORTED_PROVIDERS}> --name <label>`);
+    deps.out(`No accounts yet. Add one with: aiu login <${SUPPORTED_PROVIDERS}> [--name <label>]`);
     return 0;
   }
   const usages = await collectUsage(accounts, {
@@ -116,23 +117,56 @@ async function showUsage(deps: CliDeps, json: boolean): Promise<number> {
   return 0;
 }
 
-async function login(deps: CliDeps, providerName: string | undefined, label: string | undefined): Promise<number> {
+/**
+ * The label for a login without --name: the known account with the same e-mail (a re-login),
+ * otherwise the e-mail itself, lowercased like every label.
+ */
+function labelFromIdentity(
+  providerId: ProviderId,
+  identity: string | undefined,
+  accounts: Account[],
+): { label: string } | { error: string } {
+  if (!identity) return { error: `${providerId} did not report the account e-mail` };
+  const email = identity.toLowerCase();
+  const known = accounts.filter(
+    (account) => account.provider === providerId && account.identity?.toLowerCase() === email,
+  );
+  if (known.length > 1) {
+    return { error: `Several ${providerId} accounts use ${identity} (${known.map((account) => account.label).join(', ')})` };
+  }
+  if (known[0]) return { label: known[0].label };
+  if (!LABEL_PATTERN.test(email)) return { error: `The e-mail ${identity} cannot be used as a label` };
+  return { label: email };
+}
+
+async function login(deps: CliDeps, providerName: string | undefined, name: string | undefined): Promise<number> {
   const supported = Object.keys(deps.providers);
   const provider = providerName && supported.includes(providerName) ? deps.providers[providerName as ProviderId] : undefined;
   if (!provider) {
     deps.err(`Unknown provider: ${providerName ?? '(none)'}. Use one of: ${supported.join(', ')}`);
     return 2;
   }
-  if (!label || !LABEL_PATTERN.test(label)) {
+  if (name !== undefined && !LABEL_PATTERN.test(name)) {
     deps.err(
       'Invalid label: use up to 64 lowercase letters, digits or "-_.@+" (e.g. "personal" or an e-mail), starting with a letter or digit.',
     );
     return 2;
   }
-  const account: Account = { provider: provider.id, label };
-  const id = accountId(account);
+  // Fail before the login prompts when the label could not be derived afterwards.
+  if (name === undefined && !provider.reportsIdentity) {
+    deps.err(`${provider.id} does not report the account e-mail; pass --name <label>.`);
+    return 2;
+  }
   const result = await provider.login(deps.io);
-  const isNew = !(await deps.listAccounts()).some((existing) => accountId(existing) === id);
+  const accounts = await deps.listAccounts();
+  const derived = name === undefined ? labelFromIdentity(provider.id, result.identity, accounts) : { label: name };
+  if ('error' in derived) {
+    deps.err(`${derived.error}; pass --name <label>.`);
+    return 2;
+  }
+  const account: Account = { provider: provider.id, label: derived.label };
+  const id = accountId(account);
+  const isNew = !accounts.some((existing) => accountId(existing) === id);
   await deps.lock(lockName(id), () => deps.saveCredentials(id, result.credentials));
   try {
     await deps.upsertAccount(result.identity ? { ...account, identity: result.identity } : account);
@@ -141,7 +175,7 @@ async function login(deps: CliDeps, providerName: string | undefined, label: str
     if (isNew) await deps.deleteCredentials(id).catch(() => undefined);
     throw error;
   }
-  deps.out(`Added ${id}${result.identity ? ` (${result.identity})` : ''}`);
+  deps.out(`${isNew ? 'Added' : 'Logged in again to'} ${id}${result.identity ? ` (${result.identity})` : ''}`);
   return 0;
 }
 

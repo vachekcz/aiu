@@ -16,6 +16,7 @@ let locks: string[];
 
 const fakeProvider: Provider<{ token: string }> = {
   id: 'claude',
+  reportsIdentity: true,
   login: async () => ({ credentials: { token: 'new' }, identity: 'me@example.com' }),
   needsRefresh: () => false,
   refresh: async (stored) => stored,
@@ -71,7 +72,7 @@ afterEach(async () => {
 describe('aiu', () => {
   it('prints a hint when no accounts are configured', async () => {
     expect(await main([], deps())).toBe(0);
-    expect(stdout).toContain('No accounts yet. Add one with: aiu login <claude|chatgpt|grok> --name <label>');
+    expect(stdout).toContain('No accounts yet. Add one with: aiu login <claude|chatgpt|grok> [--name <label>]');
   });
 
   it('prints the usage table by default', async () => {
@@ -155,16 +156,102 @@ describe('aiu login', () => {
     expect(credentials.get('claude/personal')).toEqual({ token: 'new' });
   });
 
+  it('adds a second account with the same e-mail under the label --name gives', async () => {
+    accounts = [{ provider: 'claude', label: 'personal', identity: 'me@example.com' }];
+    credentials.set('claude/personal', { token: 'old' });
+    expect(await main(['login', 'claude', '--name', 'team'], deps())).toBe(0);
+    expect(credentials.get('claude/personal')).toEqual({ token: 'old' });
+    expect(credentials.get('claude/team')).toEqual({ token: 'new' });
+    expect(accounts.map(accountId)).toEqual(['claude/personal', 'claude/team']);
+    expect(stdout).toContain('Added claude/team (me@example.com)');
+  });
+
   it.each([['Bad Name'], ['_x'], ['a'.repeat(65)], ['a"b'], ['a/b']])('rejects the label %s', async (label) => {
     expect(await main(['login', 'claude', '--name', label], deps())).toBe(2);
     expect(stderr).toContain('Invalid label');
   });
 
-  it('rejects a missing label and an unknown provider', async () => {
-    expect(await main(['login', 'claude'], deps())).toBe(2);
+  it('rejects an empty label and an unknown provider', async () => {
+    expect(await main(['login', 'claude', '--name', ''], deps())).toBe(2);
     expect(stderr).toContain('Invalid label');
     expect(await main(['login', 'gemini', '--name', 'x'], deps())).toBe(2);
     expect(stderr).toContain('Unknown provider: gemini');
+  });
+
+  describe('without --name', () => {
+    const withIdentity = (identity: string | undefined): Partial<CliDeps> => ({
+      ...deps(),
+      providers: {
+        claude: {
+          ...fakeProvider,
+          login: async () => ({ credentials: { token: 'new' }, ...(identity ? { identity } : {}) }),
+        } as Provider<unknown>,
+      },
+    });
+
+    it('labels the account with its login e-mail', async () => {
+      expect(await main(['login', 'claude'], deps())).toBe(0);
+      expect(credentials.get('claude/me@example.com')).toEqual({ token: 'new' });
+      expect(accounts).toEqual([{ provider: 'claude', label: 'me@example.com', identity: 'me@example.com' }]);
+      expect(stdout).toContain('Added claude/me@example.com (me@example.com)');
+      expect(locks).toEqual(['claude__me@example.com']);
+    });
+
+    it('lowercases the e-mail, since labels are lowercase', async () => {
+      expect(await main(['login', 'claude'], withIdentity('Me@Example.com'))).toBe(0);
+      expect(accounts).toEqual([{ provider: 'claude', label: 'me@example.com', identity: 'Me@Example.com' }]);
+    });
+
+    it('logs in again to the known account with the same e-mail instead of adding a duplicate', async () => {
+      accounts = [
+        { provider: 'chatgpt', label: 'pro', identity: 'me@example.com' },
+        { provider: 'claude', label: 'personal', identity: 'Me@example.com' },
+      ];
+      expect(await main(['login', 'claude'], deps())).toBe(0);
+      expect(credentials.get('claude/personal')).toEqual({ token: 'new' });
+      expect(accounts.map(accountId)).toEqual(['chatgpt/pro', 'claude/personal']);
+      expect(stdout).toContain('Logged in again to claude/personal (me@example.com)');
+      expect(stdout).not.toContain('Added');
+    });
+
+    it('asks for --name when several known accounts use the e-mail', async () => {
+      accounts = [
+        { provider: 'claude', label: 'personal', identity: 'me@example.com' },
+        { provider: 'claude', label: 'team', identity: 'me@example.com' },
+      ];
+      expect(await main(['login', 'claude'], deps())).toBe(2);
+      expect(stderr).toContain('Several claude accounts use me@example.com (personal, team); pass --name <label>');
+      expect(credentials.size).toBe(0);
+    });
+
+    it('asks for --name when the login reports no e-mail', async () => {
+      expect(await main(['login', 'claude'], withIdentity(undefined))).toBe(2);
+      expect(stderr).toContain('claude did not report the account e-mail; pass --name <label>');
+      expect(credentials.size).toBe(0);
+      expect(accounts).toEqual([]);
+    });
+
+    it('asks for --name when the e-mail is not a valid label', async () => {
+      expect(await main(['login', 'claude'], withIdentity(`${'a'.repeat(60)}@example.com`))).toBe(2);
+      expect(stderr).toContain('cannot be used as a label; pass --name <label>');
+      expect(credentials.size).toBe(0);
+    });
+
+    it('asks for --name before logging in to a provider that reports no e-mail', async () => {
+      let loggedIn = false;
+      const grok = {
+        ...fakeProvider,
+        id: 'grok',
+        reportsIdentity: undefined,
+        login: async () => {
+          loggedIn = true;
+          return { credentials: { token: 'new' } };
+        },
+      } as Provider<unknown>;
+      expect(await main(['login', 'grok'], { ...deps(), providers: { grok } })).toBe(2);
+      expect(stderr).toContain('grok does not report the account e-mail; pass --name <label>');
+      expect(loggedIn).toBe(false);
+    });
   });
 
   it('rejects a provider that is not implemented and lists only implemented ones', async () => {

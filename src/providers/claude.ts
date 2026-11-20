@@ -121,6 +121,7 @@ function credentialsFrom(tokens: Record<string, unknown>, previousRefreshToken?:
 
 export const claudeProvider: Provider<ClaudeCredentials> = {
   id: 'claude',
+  reportsIdentity: true,
 
   async login(io) {
     const { verifier, challenge } = createPkce();

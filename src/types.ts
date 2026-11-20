@@ -49,6 +49,8 @@ export interface LoginResult<C> {
 
 export interface Provider<C> {
   id: ProviderId;
+  /** login() returns the account e-mail as identity, so `aiu login` can label the account without --name. */
+  reportsIdentity?: boolean;
   login(io: LoginIO): Promise<LoginResult<C>>;
   needsRefresh(credentials: C, now: Date): boolean;
   /** Throws AuthExpiredError when the provider rejects the refresh token. */

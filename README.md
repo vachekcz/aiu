@@ -18,13 +18,13 @@ npm link        # puts `aiu` on your PATH
 ## Usage
 
 ```bash
-aiu login claude --name personal    # opens the browser; paste the code shown after login
-aiu login chatgpt --name pro        # opens the browser; returns automatically
-aiu login grok --name main          # paste the cookie header and user agent from grok.com DevTools
+aiu login claude                     # opens the browser; paste the code shown after login
+aiu login chatgpt                    # opens the browser; returns automatically
+aiu login grok --name main           # paste the cookie header and user agent from grok.com DevTools
 aiu                                  # which account to use now, then all accounts in burn order
 aiu --json                           # same, machine-readable
 aiu accounts                         # list configured accounts
-aiu remove claude/personal           # forget an account
+aiu remove claude/me@example.com     # forget an account
 ```
 
 `aiu` prints two sections:
@@ -82,6 +82,12 @@ without a known reset goes after the ones with one, and a service whose accounts
 `aiu --json` prints the same data for scripts: each limit carries a `kind` (`session`, `weekly` or
 `model`) when known, and a top-level `recommendation` object holds the advice (`providers`, `models` and
 `plan`).
+
+Without `--name`, `aiu login` labels a Claude or ChatGPT account with the e-mail it logged in with,
+e.g. `claude/me@example.com`. Logging in again to an account `aiu` already knows, even one added under
+another label, renews that account instead of adding it twice. Pass `--name` for a shorter label, or
+when one e-mail has several subscriptions (e.g. a personal and a team plan) and each needs its own
+label. Grok does not report the e-mail, so `aiu login grok` always needs `--name`.
 
 To add several accounts of the same service, switch the account in the browser
 (or use a private window) before each `aiu login`.

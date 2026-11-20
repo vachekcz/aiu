@@ -112,7 +112,6 @@ const FONT_SIZE = 13;
 const CHAR_WIDTH = 7.8;
 const LINE_HEIGHT = 19;
 const PADDING = 16;
-const COLORS: Record<string, string> = { '31': '#f26161', '32': '#5fcf8a', '33': '#f2a03d', '36': '#63c3d4', '2': '#6c7671' };
 const FOREGROUND = '#d5dbd7';
 
 interface Run {
@@ -122,18 +121,25 @@ interface Run {
   bold: boolean;
 }
 
-/** Splits one line of renderer output into styled runs, tracking the column each run starts at. */
+const hex = (value: string) => Number(value).toString(16).padStart(2, '0');
+
+/**
+ * Splits one line of the renderer's 24-bit output into styled runs, tracking the column each run starts
+ * at. The colours come from the escape codes themselves, so the images show exactly what the CLI prints.
+ */
 function runsOf(line: string): Run[] {
   const runs: Run[] = [];
   let color = FOREGROUND;
   let bold = false;
   let column = 0;
-  for (const part of line.split(/(\x1b\[\d+m)/)) {
-    const code = part.match(/^\x1b\[(\d+)m$/)?.[1];
+  for (const part of line.split(/(\x1b\[[\d;]+m)/)) {
+    const code = part.match(/^\x1b\[([\d;]+)m$/)?.[1];
     if (code !== undefined) {
+      const rgb = code.match(/^38;2;(\d+);(\d+);(\d+)$/);
       if (code === '0') [color, bold] = [FOREGROUND, false];
       else if (code === '1') bold = true;
-      else color = COLORS[code] ?? color;
+      else if (rgb) color = `#${hex(rgb[1]!)}${hex(rgb[2]!)}${hex(rgb[3]!)}`;
+      else throw new Error(`unexpected escape code ${JSON.stringify(code)}: render with color 'truecolor'`);
       continue;
     }
     if (part.length === 0) continue;
@@ -151,7 +157,7 @@ const escapeXml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&
  */
 export function toSvg(ansi: string): string {
   const lines = ansi.split('\n');
-  const columns = Math.max(...lines.map((line) => line.replace(/\x1b\[\d+m/g, '').length));
+  const columns = Math.max(...lines.map((line) => line.replace(/\x1b\[[\d;]+m/g, '').length));
   const width = Math.ceil(columns * CHAR_WIDTH + 2 * PADDING);
   const height = Math.ceil(lines.length * LINE_HEIGHT + 2 * PADDING - (LINE_HEIGHT - FONT_SIZE));
   // Each word is placed on its own column: renderers that collapse spaces then cannot shift the rest.
@@ -177,7 +183,7 @@ export function toSvg(ansi: string): string {
   ].join('\n');
 }
 
-export const renderExample = (example: Example): string => toSvg(renderOverview(example.usages, NOW, { color: true }));
+export const renderExample = (example: Example): string => toSvg(renderOverview(example.usages, NOW, { color: 'truecolor' }));
 
 export const EXAMPLES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'examples');
 

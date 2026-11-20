@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCountdown, renderJson, renderOverview, severityForPercent, shouldUseColor } from '../src/render.ts';
+import { colorMode, formatCountdown, renderJson, renderOverview, severityForPercent, TRUECOLOR_PALETTE } from '../src/render.ts';
 import type { AccountUsage, Limit } from '../src/types.ts';
 
 const now = new Date('2026-11-18T22:00:00Z');
@@ -62,12 +62,18 @@ describe('formatCountdown', () => {
 });
 
 
-describe('shouldUseColor', () => {
+describe('colorMode', () => {
   it('requires a TTY and no NO_COLOR', () => {
-    expect(shouldUseColor({ isTTY: false }, {})).toBe(false);
-    expect(shouldUseColor({ isTTY: true }, { NO_COLOR: '1' })).toBe(false);
-    expect(shouldUseColor({ isTTY: true }, {})).toBe(true);
-    expect(shouldUseColor({ isTTY: true }, { NO_COLOR: '' })).toBe(true);
+    expect(colorMode({ isTTY: false }, { COLORTERM: 'truecolor' })).toBe('none');
+    expect(colorMode({ isTTY: true }, { NO_COLOR: '1', COLORTERM: 'truecolor' })).toBe('none');
+    expect(colorMode({ isTTY: true }, {})).toBe('basic');
+    expect(colorMode({ isTTY: true }, { NO_COLOR: '' })).toBe('basic');
+  });
+
+  it('uses 24-bit colour when the terminal announces it in COLORTERM', () => {
+    expect(colorMode({ isTTY: true }, { COLORTERM: 'truecolor' })).toBe('truecolor');
+    expect(colorMode({ isTTY: true }, { COLORTERM: '24bit' })).toBe('truecolor');
+    expect(colorMode({ isTTY: true }, { COLORTERM: 'yes' })).toBe('basic');
   });
 });
 
@@ -159,7 +165,7 @@ describe('renderOverview', () => {
     severity: blocked ? 'critical' : 'normal',
     detail: blocked ? 'blocked' : 'available',
   });
-  const plain = (usages: AccountUsage[]) => renderOverview(usages, now, { color: false });
+  const plain = (usages: AccountUsage[]) => renderOverview(usages, now, { color: 'none' });
   const RED = '\x1b[31m';
   const YELLOW = '\x1b[33m';
   const DIM = '\x1b[2m';
@@ -217,7 +223,7 @@ describe('renderOverview', () => {
     expect(lines.slice(5, 8).map((line) => line.slice(4, 7))).toEqual(['a  ', 'b  ', 'out']);
     expect(lines[7]).toMatch(/^ {2}✗ out/);
     expect(lines[7]).toContain('week used up · back in 1d 6h');
-    const colored = renderOverview(usages, now, { color: true });
+    const colored = renderOverview(usages, now, { color: 'basic' });
     expect(colored).toContain(`${RED}██████████ 100 %`);
     expect(colored).toContain(`${DIM}░░░░░   0 %`);
   });
@@ -228,7 +234,7 @@ describe('renderOverview', () => {
     expect(output).toContain('needs 7.2 %/h');
     expect(output).toContain('needs 1.8 %/h');
     expect(output).not.toMatch(/easy.*needs/);
-    const colored = renderOverview(usages, now, { color: true });
+    const colored = renderOverview(usages, now, { color: 'basic' });
     expect(colored).toContain(`${RED} 65 %`);
     expect(colored).toContain(`${YELLOW} 70 %`);
   });
@@ -305,6 +311,15 @@ describe('renderOverview', () => {
 
   it('emits ANSI codes only when color is enabled', () => {
     expect(plain(usages)).not.toContain('\x1b[');
-    expect(renderOverview(usages, now, { color: true })).toContain('\x1b[1mUse now\x1b[0m');
+    expect(renderOverview(usages, now, { color: 'basic' })).toContain('\x1b[1mUse now\x1b[0m');
+  });
+
+  it('prints the palette shades in 24-bit colour', () => {
+    const output = renderOverview([claude('x', [week(100, 10)]), claude('y', [week(10, 20)])], now, { color: 'truecolor' });
+    expect(TRUECOLOR_PALETTE.yellow).toBe('#f2a03d');
+    expect(output).toContain('\x1b[38;2;242;97;97m██████████ 100 %');
+    expect(output).toContain('\x1b[38;2;95;207;138m█░░░░░░░░░  10 %');
+    expect(output).toContain('\x1b[1m\x1b[38;2;95;207;138m▶');
+    expect(output).not.toMatch(/\x1b\[3[1-7]m/);
   });
 });

@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { collectUsage, lockName } from './collect.ts';
 import { withFileLock } from './lock.ts';
 import { providers as defaultProviders } from './providers/index.ts';
-import { renderJson, renderOverview, shouldUseColor } from './render.ts';
+import { colorMode, renderJson, renderOverview, type ColorMode } from './render.ts';
 import { listAccounts, removeAccount, upsertAccount } from './store/accounts.ts';
 import { deleteCredentials, loadCredentials, saveCredentials } from './store/credentials.ts';
 import { accountId, type Account, type LoginIO, type Provider, type ProviderId } from './types.ts';
@@ -38,7 +38,7 @@ export interface CliDeps {
   out: (text: string) => void;
   err: (text: string) => void;
   now: () => Date;
-  color: boolean;
+  color: ColorMode;
   lock: typeof withFileLock;
 }
 
@@ -84,7 +84,7 @@ const defaultDeps = (): CliDeps => ({
   out: (text) => process.stdout.write(`${text}\n`),
   err: (text) => process.stderr.write(`${text}\n`),
   now: () => new Date(),
-  color: shouldUseColor(process.stdout, process.env),
+  color: colorMode(process.stdout, process.env),
   lock: withFileLock,
 });
 

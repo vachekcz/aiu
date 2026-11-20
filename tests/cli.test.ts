@@ -156,6 +156,16 @@ describe('aiu login', () => {
     expect(credentials.get('claude/personal')).toEqual({ token: 'new' });
   });
 
+  it('adds a second account with the same e-mail under the label --name gives', async () => {
+    accounts = [{ provider: 'claude', label: 'personal', identity: 'me@example.com' }];
+    credentials.set('claude/personal', { token: 'old' });
+    expect(await main(['login', 'claude', '--name', 'team'], deps())).toBe(0);
+    expect(credentials.get('claude/personal')).toEqual({ token: 'old' });
+    expect(credentials.get('claude/team')).toEqual({ token: 'new' });
+    expect(accounts.map(accountId)).toEqual(['claude/personal', 'claude/team']);
+    expect(stdout).toContain('Added claude/team (me@example.com)');
+  });
+
   it.each([['Bad Name'], ['_x'], ['a'.repeat(65)], ['a"b'], ['a/b']])('rejects the label %s', async (label) => {
     expect(await main(['login', 'claude', '--name', label], deps())).toBe(2);
     expect(stderr).toContain('Invalid label');
@@ -202,16 +212,6 @@ describe('aiu login', () => {
       expect(accounts.map(accountId)).toEqual(['chatgpt/pro', 'claude/personal']);
       expect(stdout).toContain('Logged in again to claude/personal (me@example.com)');
       expect(stdout).not.toContain('Added');
-    });
-
-    it('still adds a second account with the same e-mail when --name is given', async () => {
-      accounts = [{ provider: 'claude', label: 'personal', identity: 'me@example.com' }];
-      credentials.set('claude/personal', { token: 'old' });
-      expect(await main(['login', 'claude', '--name', 'team'], deps())).toBe(0);
-      expect(credentials.get('claude/personal')).toEqual({ token: 'old' });
-      expect(credentials.get('claude/team')).toEqual({ token: 'new' });
-      expect(accounts.map(accountId)).toEqual(['claude/personal', 'claude/team']);
-      expect(stdout).toContain('Added claude/team (me@example.com)');
     });
 
     it('asks for --name when several known accounts use the e-mail', async () => {

@@ -156,14 +156,16 @@ function latestReset(limits: Limit[]): Date | null {
 
 /**
  * A model column: its fullest limit, or "✗" when one is used up. A used-up model that comes back at
- * another time than the row's weekly reset (ChatGPT's "GPT-6 Pro 5h", "gpt-6-astra") shows when.
+ * another time than the row's weekly reset (ChatGPT's "GPT-6 Pro 5h", "gpt-6-astra") shows when, and one
+ * without a known reset says so rather than implying it comes back with the week.
  */
 function extraCell(limits: Limit[], dimmed: boolean, weeklyReset: Date | null, now: Date): Cell {
   if (limits.length === 0) return [];
   const usedUp = limits.filter(isUsedUp);
   if (usedUp.length > 0) {
     const back = latestReset(usedUp);
-    const ownReset = back !== null && (!weeklyReset || Math.abs(back.getTime() - weeklyReset.getTime()) > 60_000);
+    if (back === null) return [segment('✗ unknown', ANSI.red)];
+    const ownReset = (!weeklyReset || Math.abs(back.getTime() - weeklyReset.getTime()) > 60_000);
     return [segment(ownReset ? `✗ ${formatCountdown(back, now)}` : '✗ used', ANSI.red)];
   }
   const known = limits.filter((limit) => limit.percent !== null);

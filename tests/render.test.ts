@@ -245,6 +245,8 @@ describe('renderOverview', () => {
     const output = plain([chatgpt('pro', [week(40, 120, 'Week'), pro5h, pro, astra(true, 5)]), claude('max', [week(10, 50), fable(100, 50)])]);
     expect(output).toMatch(/▶ pro .*✗ 2h 0m +✗ 5h 0m +5d 0h/);
     expect(output).toMatch(/max .*✗ used/);
+    const unknown = plain([chatgpt('x', [week(40, 120, 'Week'), { ...astra(true, 0), resetsAt: null }])]);
+    expect(unknown).toMatch(/x .*✗ unknown/);
   });
 
   it('orders by the weekly reset even when the weekly limit has no percent', () => {

@@ -43,8 +43,9 @@ account to use now, `‖` one waiting for its 5h window (it keeps its place in t
 weekly limit is used up (listed after the others, by when it frees up) and `!` one that failed, with the
 command that fixes it. The columns are shared by all services, so a service without a 5h window shows `—`.
 Bars are green below 50 %, yellow from 50 % and red from 80 %; a used-up limit is always red. Each
-model with its own limit (e.g. Fable) gets a column: a used-up model shows `✗ used`, or `✗` with the
-time it comes back when that differs from the weekly reset. `Fable first` marks the first account in the
+model with its own limit (e.g. Fable) gets a column: a used-up model shows `✗ used` when it comes back with
+the weekly reset, `✗` with its own countdown when it comes back at another time, and `✗ unknown` when
+that time is not known. `Fable first` marks the first account in the
 order that still has room for it. `Burn` is how much of the weekly allowance is left, coloured by the
 pace needed to use it up before the reset: green below 1.5 %/h, yellow up to 3 %/h, red above, and the
 note names that pace once it is 1.5 %/h or more.

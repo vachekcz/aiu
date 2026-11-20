@@ -51,8 +51,9 @@ pace needed to use it up before the reset: green below 1.5 %/h, orange up to 3 %
 note names that pace once it is 1.5 %/h or more.
 
 Terminals that announce 24-bit colour (`COLORTERM=truecolor` or `24bit`) show exactly the shades of
-the images below. Other terminals get their theme's basic red, green, yellow and
-cyan instead, and `NO_COLOR` or piping the output turns colour off.
+the images in this README. Other terminals get their theme's basic red, green, yellow and cyan instead,
+and `NO_COLOR` or piping the output turns colour off. The shades are made for a dark background; on a
+light one, run `COLORTERM= aiu` to keep your theme's colours.
 
 ### What it shows in other situations
 

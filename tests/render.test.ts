@@ -204,7 +204,7 @@ describe('renderOverview', () => {
     expect(output).toContain('‖ low');
     expect(output).toContain('5h 7 % left');
     expect(output).toContain('use roomy');
-    expect(output).toContain('back to low when it frees up');
+    expect(output).toContain('back to low in 1h 0m');
   });
 
   it('puts accounts with a used-up weekly limit after the burn order, red at 100 % and dimmed otherwise', () => {
@@ -237,6 +237,22 @@ describe('renderOverview', () => {
     const output = plain([claude('first', [week(10, 10), fable(0, 10)]), claude('second', [week(10, 50), fable(0, 50)])]);
     expect(output).toMatch(/first .*Fable first/);
     expect(output).not.toMatch(/second .*Fable first/);
+  });
+
+  it('shows when a used-up model comes back when that differs from the weekly reset', () => {
+    const pro5h: Limit = { label: 'GPT-6 Pro 5h', kind: 'model', percent: 100, resetsAt: at(2), severity: 'critical' };
+    const pro: Limit = { label: 'GPT-6 Pro Week', kind: 'model', percent: 40, resetsAt: at(120), severity: 'normal' };
+    const output = plain([chatgpt('pro', [week(40, 120, 'Week'), pro5h, pro, astra(true, 5)]), claude('max', [week(10, 50), fable(100, 50)])]);
+    expect(output).toMatch(/▶ pro .*✗ 2h 0m +✗ 5h 0m +5d 0h/);
+    expect(output).toMatch(/max .*✗ used/);
+  });
+
+  it('orders by the weekly reset even when the weekly limit has no percent', () => {
+    const noPercent: Limit = { ...week(0, 5), percent: null, detail: 'n/a' };
+    const lines = plain([claude('known', [week(10, 50)]), claude('no-percent', [noPercent])]).split('\n');
+    expect(lines[1]).toContain('use no-percent');
+    expect(lines[5]).toMatch(/^ {2}▶ no-percent/);
+    expect(lines[6]).toMatch(/known/);
   });
 
   it('puts an unknown weekly reset last and says so', () => {

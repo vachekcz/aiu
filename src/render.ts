@@ -1,4 +1,4 @@
-import { isUsedUp, modelName, recommend, SESSION_ROOM, type ProviderAdvice } from './recommend.ts';
+import { byDeadline, findKind, freesUpAt, isUsedUp, modelName, recommend, SESSION_ROOM, type ProviderAdvice } from './recommend.ts';
 import { accountId, type AccountUsage, type Limit, type ProviderId, type Severity } from './types.ts';
 
 const HOUR_MS = 3_600_000;
@@ -113,8 +113,6 @@ interface Section {
   hasSession: boolean;
 }
 
-const findKind = (usage: OkUsage, kind: Limit['kind']) => usage.limits.find((limit) => limit.kind === kind);
-
 /** Model limits group by model ("Week (Fable)" → "Fable"); limits of unknown kind keep their label. */
 const extraKey = (limit: Limit): string | null => {
   if (limit.kind === 'model') return modelName(limit.label);
@@ -130,13 +128,6 @@ function pace(weekly: Limit, pausedUntil: Date | null, now: Date): number | null
 
 const paceColor = (value: number | null): string =>
   value === null ? ANSI.dim : value > PACE_CRITICAL ? ANSI.red : value >= PACE_TIGHT ? ANSI.yellow : ANSI.green;
-
-/** When an account with a used-up 5h or weekly limit is usable again: the latest such reset (null if unknown). */
-function freesUpAt(usage: OkUsage): Date | null {
-  const blocking = usage.limits.filter((limit) => (limit.kind === 'session' || limit.kind === 'weekly') && isUsedUp(limit));
-  if (blocking.some((limit) => limit.resetsAt === null)) return null;
-  return blocking.reduce<Date | null>((latest, limit) => (!latest || limit.resetsAt! > latest ? limit.resetsAt : latest), null);
-}
 
 const percentText = (percent: number): string => `${String(Math.floor(percent)).padStart(3)} %`;
 
@@ -157,23 +148,39 @@ function limitCell(limit: Limit | undefined, cells: number, dimmed: boolean): Ce
   return [segment(`${bar(limit.percent, cells)} ${percentText(limit.percent)}`, style)];
 }
 
-function extraCell(limits: Limit[], dimmed: boolean): Cell {
+/** The latest reset of these limits, or null when any of them is unknown. */
+function latestReset(limits: Limit[]): Date | null {
+  if (limits.length === 0 || limits.some((limit) => limit.resetsAt === null)) return null;
+  return limits.reduce<Date | null>((latest, limit) => (!latest || limit.resetsAt! > latest ? limit.resetsAt : latest), null);
+}
+
+/**
+ * A model column: its fullest limit, or "✗" when one is used up. A used-up model that comes back at
+ * another time than the row's weekly reset (ChatGPT's "GPT-6 Pro 5h", "gpt-6-astra") shows when.
+ */
+function extraCell(limits: Limit[], dimmed: boolean, weeklyReset: Date | null, now: Date): Cell {
   if (limits.length === 0) return [];
-  if (limits.some(isUsedUp)) return [segment('✗ used', ANSI.red)];
+  const usedUp = limits.filter(isUsedUp);
+  if (usedUp.length > 0) {
+    const back = latestReset(usedUp);
+    const ownReset = back !== null && (!weeklyReset || Math.abs(back.getTime() - weeklyReset.getTime()) > 60_000);
+    return [segment(ownReset ? `✗ ${formatCountdown(back, now)}` : '✗ used', ANSI.red)];
+  }
   const known = limits.filter((limit) => limit.percent !== null);
   if (known.length === 0) return [segment(limits[0]!.detail ?? 'n/a', dimmed ? ANSI.dim : undefined)];
   const fullest = known.reduce((max, limit) => (limit.percent! > max.percent! ? limit : max));
   return [segment(percentText(fullest.percent!), limitStyle(fullest, dimmed))];
 }
 
-/** Earlier weekly reset first; no weekly limit or an unknown reset sorts after every known one. */
-function deadlineOf(usage: OkUsage): number {
-  const weekly = findKind(usage, 'weekly');
-  return weekly?.percent !== null && weekly?.resetsAt ? weekly.resetsAt.getTime() : Number.POSITIVE_INFINITY;
-}
+/** The weekly reset as recommend.ts orders by it: no weekly limit counts like an unknown reset, i.e. last. */
+const deadline = (state: AccountState): Pick<Limit, 'resetsAt'> => ({ resetsAt: state.weekly?.resetsAt ?? null });
 
-/** Ascending; two unknown (infinite) times compare equal, so they keep their order. */
-const compareTimes = (first: number, second: number): number => (first === second ? 0 : first - second);
+/** When a waiting account can be used again: the reset of its full or nearly full 5h window, or of a used-up limit of unknown kind. */
+function waitsUntil(state: AccountState): Date | null {
+  const { session, usage } = state;
+  const sessionWaits = session !== undefined && (isUsedUp(session) || (session.percent !== null && 100 - session.percent < SESSION_ROOM));
+  return latestReset([...(sessionWaits ? [session] : []), ...usage.limits.filter((limit) => !limit.kind && isUsedUp(limit))]);
+}
 
 interface AccountState {
   usage: OkUsage;
@@ -244,7 +251,7 @@ function dataRow(state: AccountState, extras: string[], recommended: boolean, pr
     account: [segment(usage.account.label, recommended ? ANSI.bold : weeklyUsedUp ? ANSI.dim : undefined)],
     session: limitCell(session, SESSION_BAR_CELLS, weeklyUsedUp),
     week: limitCell(weekly, WEEK_BAR_CELLS, weeklyUsedUp),
-    extras: extras.map((key) => extraCell(usage.limits.filter((limit) => extraKey(limit) === key), weeklyUsedUp)),
+    extras: extras.map((key) => extraCell(usage.limits.filter((limit) => extraKey(limit) === key), weeklyUsedUp, weekly?.resetsAt ?? null, now)),
     resetsIn: [segment(resetsIn, weeklyUsedUp || !weekly ? ANSI.dim : undefined)],
     burn: burn(),
     note: notesFor(state, premium, now),
@@ -268,9 +275,9 @@ function providerSection(provider: ProviderId, usages: AccountUsage[], advice: P
     if (usage.limits.length === 0) return [{ type: 'span', glyph: [segment(' ')], account, message: [segment('no limits reported', ANSI.dim)] }];
     return [];
   });
-  const freeAt = (state: AccountState) => freesUpAt(state.usage)?.getTime() ?? Number.POSITIVE_INFINITY;
-  const burnable = ok.filter((state) => !state.weeklyUsedUp).sort((first, second) => compareTimes(deadlineOf(first.usage), deadlineOf(second.usage)));
-  const usedUp = ok.filter((state) => state.weeklyUsedUp).sort((first, second) => compareTimes(freeAt(first), freeAt(second)));
+  const freeAt = (state: AccountState): Pick<Limit, 'resetsAt'> => ({ resetsAt: freesUpAt(state.usage) });
+  const burnable = ok.filter((state) => !state.weeklyUsedUp).sort((first, second) => byDeadline(deadline(first), deadline(second)));
+  const usedUp = ok.filter((state) => state.weeklyUsedUp).sort((first, second) => byDeadline(freeAt(first), freeAt(second)));
 
   const extras = [...new Set(ok.flatMap((state) => state.usage.limits.map(extraKey).filter((key) => key !== null)))];
   // Each model with room is suggested once: on the first account in burn order that still has it.
@@ -364,9 +371,10 @@ function useNowLine(name: string, advice: ProviderAdvice | undefined, usages: Ac
   if (advice.sessionLeft !== undefined) details.push([segment(`${advice.sessionLabel ?? '5h'} ${Math.floor(advice.sessionLeft)} % free`)]);
   // An account due earlier that waits for its 5h window: say when to switch back to it.
   const recommendedIndex = recommended ? burnable.indexOf(recommended) : -1;
-  const waiting = burnable.slice(0, Math.max(0, recommendedIndex)).find((state) => state.paused && deadlineOf(state.usage) < deadlineOf(recommended!.usage));
+  const waiting = burnable.slice(0, Math.max(0, recommendedIndex)).find((state) => state.paused && byDeadline(deadline(state), deadline(recommended!)) < 0);
   if (waiting) {
-    const when = waiting.session?.resetsAt && isUsedUp(waiting.session) ? inTime(waiting.session.resetsAt, now) : 'when it frees up';
+    const until = waitsUntil(waiting);
+    const when = until ? inTime(until, now) : 'when it frees up';
     details.push([segment(`back to ${waiting.usage.account.label} ${when}`, ANSI.yellow)]);
   }
   return details.length === 0 ? parts : [...parts, segment(' — '), ...details.flatMap((detail, index) => (index === 0 ? detail : [segment(' · '), ...detail]))];

@@ -86,10 +86,10 @@ type OkUsage = Extract<AccountUsage, { status: 'ok' }>;
 export const isUsedUp = (limit: Limit): boolean => (limit.percent ?? 0) >= 100 || limit.detail === 'blocked';
 const left = (limit: Limit | undefined): number | undefined =>
   limit?.percent === null || limit === undefined ? undefined : Math.max(0, 100 - limit.percent);
-const findKind = (usage: OkUsage, kind: Limit['kind']) => usage.limits.find((limit) => limit.kind === kind);
+export const findKind = (usage: OkUsage, kind: Limit['kind']) => usage.limits.find((limit) => limit.kind === kind);
 
 /** Latest reset among the used-up gating limits, i.e. when the account is usable again (null if unknown). */
-function freesUpAt(usage: OkUsage): Date | null {
+export function freesUpAt(usage: OkUsage): Date | null {
   const blocking = usage.limits.filter((limit) => (limit.kind === 'session' || limit.kind === 'weekly') && isUsedUp(limit));
   if (blocking.some((limit) => limit.resetsAt === null)) return null;
   return blocking.reduce<Date | null>((latest, limit) => (!latest || limit.resetsAt! > latest ? limit.resetsAt : latest), null);
@@ -109,7 +109,7 @@ function urgency(gate: Limit | undefined, now: Date): number {
 }
 
 /** Earlier reset first; an unknown reset sorts after every known one. */
-function byDeadline(first: Pick<Limit, 'resetsAt'>, second: Pick<Limit, 'resetsAt'>): number {
+export function byDeadline(first: Pick<Limit, 'resetsAt'>, second: Pick<Limit, 'resetsAt'>): number {
   const time = (limit: Pick<Limit, 'resetsAt'>) => limit.resetsAt?.getTime() ?? Number.POSITIVE_INFINITY;
   const difference = time(first) - time(second);
   return Number.isNaN(difference) ? 0 : difference;
@@ -229,8 +229,9 @@ export function recommend(usages: AccountUsage[], now: Date): Advice {
 }
 
 /**
- * The recommended account goes first, so the plan and `Recommendation` never disagree on what to use now.
- * It differs from the earliest deadline only when that account has (almost) no room in its 5h window.
+ * The recommended account goes first, so in the JSON output `plan` starts with the account `providers` names.
+ * It differs from the earliest deadline only when that account has (almost) no room in its 5h window. The
+ * text output keeps such an account in its deadline place instead and marks it as waiting (see render.ts).
  */
 function recommendedFirst(plan: ProviderPlan, recommended: string | null): ProviderPlan {
   const index = plan.steps.findIndex((step) => step.accountId === recommended);

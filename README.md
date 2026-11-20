@@ -29,20 +29,7 @@ aiu remove claude/personal           # forget an account
 
 `aiu` prints two sections:
 
-```
-Use now  which account to work on right now
-  ▶ Claude   use pvachek@example.com — 22 % lapses in 22h 18m · 5h 80 % free
-  ✗ ChatGPT  nothing usable — back in 1d 0h on me@example.com
-
-Accounts  burn top to bottom: earliest weekly reset first
-    Claude               5h           Week              Fable        Resets in  Burn
-  ▶ pvachek@example.com  █░░░░  20 %  ████████░░  78 %  ✗ used       22h 18m     22 %
-    info@example.com     ░░░░░   0 %  ████████░░  79 %  ✗ used       4d 0h       21 %
-    work@example.com     ░░░░░   3 %  █░░░░░░░░░   9 %    0 %        6d 19h      91 %  Fable first
-
-    ChatGPT              5h           Week              gpt-6-astra  Resets in  Burn
-  ✗ me@example.com       —            ██████████ 100 %  ✗ used       1d 0h      —      week used up · back in 1d 0h
-```
+![aiu output: Use now names the Claude account to work on and says ChatGPT is used up; Accounts lists three Claude accounts and one ChatGPT account in burn order](docs/examples/typical.svg)
 
 `Use now` names, per service, the account to work on: the one whose weekly limit resets first (an
 unknown reset counts as last), so as little allowance as possible lapses unused. It skips accounts whose
@@ -56,10 +43,40 @@ account to use now, `‖` one waiting for its 5h window (it keeps its place in t
 weekly limit is used up (listed after the others, by when it frees up) and `!` one that failed, with the
 command that fixes it. The columns are shared by all services, so a service without a 5h window shows `—`.
 Bars are green below 50 %, yellow from 50 % and red from 80 %; a used-up limit is always red. Each
-model with its own limit (e.g. Fable) gets a column, and `Fable first` marks the first account in the
+model with its own limit (e.g. Fable) gets a column: a used-up model shows `✗ used`, or `✗` with the
+time it comes back when that differs from the weekly reset. `Fable first` marks the first account in the
 order that still has room for it. `Burn` is how much of the weekly allowance is left, coloured by the
 pace needed to use it up before the reset: green below 1.5 %/h, yellow up to 3 %/h, red above, and the
 note names that pace once it is 1.5 %/h or more.
+
+### What it shows in other situations
+
+The images below are the real output for made-up accounts, rendered by `npm run docs:examples`.
+
+**The account due first has a full 5h window.** It keeps its place in the order, marked `‖` with the
+time its window frees up. `▶` moves to the next account, and `Use now` says when to switch back.
+
+![aiu output with the first Claude account waiting for its 5h window](docs/examples/session-full.svg)
+
+**A weekly limit is used up.** The account moves below the burn order with `✗` and the time it frees up.
+Its used-up limits stay red, the rest of the row is dimmed.
+
+![aiu output with one Claude account whose weekly limit is used up](docs/examples/weekly-used-up.svg)
+
+**Allowance is about to lapse.** The order stays by deadline, but `Burn` turns yellow or red when the
+pace needed before the reset gets high, and the note names that pace.
+
+![aiu output with 65 % left 9 hours before the reset, shown in red as needing 7.2 %/h](docs/examples/lapse-risk.svg)
+
+**Nothing is usable right now.** `Use now` says which account frees up first and when. Accounts waiting
+for their 5h window stay in the order, the one with a used-up week goes below it.
+
+![aiu output where every Claude account is waiting, and ChatGPT is usable](docs/examples/nothing-usable.svg)
+
+**Errors and missing data.** A failed account is listed last with the command that fixes it, an account
+without a known reset goes after the ones with one, and a service whose accounts all failed says so.
+
+![aiu output with an expired Claude login, an unknown reset and a blocked Grok account](docs/examples/errors.svg)
 
 `aiu --json` prints the same data for scripts: each limit carries a `kind` (`session`, `weekly` or
 `model`) when known, and a top-level `recommendation` object holds the advice (`providers`, `models` and

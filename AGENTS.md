@@ -18,6 +18,7 @@ npm ci              # install; also wires the Git hooks in .githooks/ (postinsta
 npm test            # vitest; also touches the real Keychain under service ai-usage-test
 npm run typecheck   # tsc --noEmit
 npm run hooks:doctor  # check that .githooks/ is wired in this worktree
+npm run docs:examples  # redraw the README output images after changing the output
 ```
 
 CI (`.github/workflows/ci.yml`) runs the typecheck on Linux and `npm test` on

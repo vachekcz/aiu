@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { collectUsage, lockName } from './collect.ts';
 import { withFileLock } from './lock.ts';
 import { providers as defaultProviders } from './providers/index.ts';
-import { renderJson, renderPlan, renderRecommendation, renderTable, shouldUseColor } from './render.ts';
+import { renderJson, renderOverview, shouldUseColor } from './render.ts';
 import { listAccounts, removeAccount, upsertAccount } from './store/accounts.ts';
 import { deleteCredentials, loadCredentials, saveCredentials } from './store/credentials.ts';
 import { accountId, type Account, type LoginIO, type Provider, type ProviderId } from './types.ts';
@@ -112,9 +112,7 @@ async function showUsage(deps: CliDeps, json: boolean): Promise<number> {
     deps.out(renderJson(usages, now));
     return 0;
   }
-  const recommendation = renderRecommendation(usages, now, { color: deps.color });
-  const plan = renderPlan(usages, now, { color: deps.color });
-  deps.out([renderTable(usages, now, { color: deps.color }), recommendation, plan].filter(Boolean).join('\n\n'));
+  deps.out(renderOverview(usages, now, { color: deps.color }));
   return 0;
 }
 

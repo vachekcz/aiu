@@ -1,14 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  formatCountdown,
-  formatReset,
-  renderRecommendation,
-  renderJson,
-  renderPlan,
-  renderTable,
-  severityForPercent,
-  shouldUseColor,
-} from '../src/render.ts';
+import { formatCountdown, renderJson, renderOverview, severityForPercent, shouldUseColor } from '../src/render.ts';
 import type { AccountUsage, Limit } from '../src/types.ts';
 
 const now = new Date('2026-11-18T22:00:00Z');
@@ -47,15 +38,6 @@ describe('severityForPercent', () => {
   });
 });
 
-describe('formatReset', () => {
-  it('returns empty string for unknown reset', () => {
-    expect(formatReset(null)).toBe('');
-  });
-  it('uses local weekday and time, also for a reset within the hour', () => {
-    expect(formatReset(new Date('2026-11-20T18:00:00Z'))).toBe('Fri 19:00');
-    expect(formatReset(minutes(30))).toBe('Wed 23:30');
-  });
-});
 
 describe('formatCountdown', () => {
   it('returns empty string for unknown reset', () => {
@@ -79,82 +61,6 @@ describe('formatCountdown', () => {
   });
 });
 
-describe('renderTable', () => {
-  const output = renderTable(usages, now, { color: false });
-  const lines = output.split('\n');
-
-  it('renders bars, percents and resets for ok accounts', () => {
-    expect(output).toContain('████████░░');
-    expect(output).toContain(' 80 %');
-    expect(output).toContain('██████████');
-    expect(output).toContain('100 %');
-    expect(output).toContain('1h 20m');
-    expect(output).toContain('1d 20h');
-    expect(output).toContain('Fri 19:00');
-  });
-
-  it('shows the countdown and the reset time in separate columns', () => {
-    expect(lines[0]).toMatch(/Used\s+Resets in\s+Resets at$/);
-    const fiveHour = lines.find((line) => line.includes(' 80 %'))!;
-    expect(fiveHour).toMatch(/1h 20m\s+Thu 00:20$/);
-  });
-
-  it('separates accounts with a blank line', () => {
-    expect(lines).toContain('');
-    const blank = lines.indexOf('');
-    expect(lines[blank + 1]).toContain('grok/main');
-    expect(lines[blank - 1]).toContain('Week (Fable)');
-  });
-
-  it('floors the percent, so a value just under the threshold does not read as 80 %', () => {
-    const output = renderTable(
-      [{ account: { provider: 'claude', label: 'x' }, status: 'ok', limits: [{ label: '5h', percent: 79.6, resetsAt: null, severity: 'warning' }] }],
-      now,
-      { color: false },
-    );
-    expect(output).toContain(' 79 %');
-  });
-
-  it('marks critical rows with an exclamation mark', () => {
-    const criticalRows = lines.filter((line) => line.includes(' 80 %') || line.includes('100 %'));
-    expect(criticalRows).toHaveLength(2);
-    criticalRows.forEach((row) => expect(row).toContain('!'));
-  });
-
-  it('prints the account id only on its first row', () => {
-    expect(lines.filter((line) => line.includes('claude/personal'))).toHaveLength(1);
-  });
-
-  it('renders error accounts with message and hint', () => {
-    const errorLine = lines.find((line) => line.includes('grok/main'));
-    expect(errorLine).toBeDefined();
-    expect(output).toContain('cookie expired');
-    expect(output).toContain('aiu login grok --name main');
-  });
-
-  it('renders detail instead of a bar when percent is unknown', () => {
-    const table = renderTable(
-      [
-        {
-          account: { provider: 'chatgpt', label: 'pro' },
-          status: 'ok',
-          limits: [
-            { label: 'gpt-6-astra', percent: null, resetsAt: null, severity: 'critical', detail: 'blocked' },
-          ],
-        },
-      ],
-      now,
-      { color: false },
-    );
-    expect(table).toContain('blocked');
-    expect(table).not.toContain('░');
-  });
-
-  it('emits ANSI codes only when color is enabled', () => {
-    expect(output).not.toContain('\x1b[');
-    expect(renderTable(usages, now, { color: true })).toContain('\x1b[');
-  });
-});
 
 describe('shouldUseColor', () => {
   it('requires a TTY and no NO_COLOR', () => {
@@ -219,189 +125,186 @@ describe('renderJson', () => {
   });
 });
 
-describe('renderTable edge rows', () => {
-  const account = { provider: 'claude' as const, label: 'personal' };
 
-  it('colours a warning limit yellow and a normal one green', () => {
-    const output = renderTable(
-      [
-        {
-          account,
-          status: 'ok',
-          limits: [
-            { label: '5h', percent: 60, resetsAt: null, severity: 'warning' },
-            { label: 'Week (all)', percent: 10, resetsAt: null, severity: 'normal' },
-          ],
-        },
-      ],
-      now,
-      { color: true },
-    );
-    expect(output).toContain('\x1b[33m██████░░░░  60 %');
-    expect(output).toContain('\x1b[32m█░░░░░░░░░  10 %');
-  });
-
-  it('says so when an ok account reports no limits', () => {
-    expect(renderTable([{ account, status: 'ok', limits: [] }], now, { color: false })).toContain('no limits reported');
-  });
-
-  it('renders n/a for a limit without percent or detail', () => {
-    const output = renderTable(
-      [{ account, status: 'ok', limits: [{ label: 'gpt-x', percent: null, resetsAt: null, severity: 'normal' }] }],
-      now,
-      { color: false },
-    );
-    expect(output).toContain('gpt-x  n/a');
-  });
-
-  it('makes the whole header row bold', () => {
-    const header = renderTable([{ account, status: 'ok', limits: [] }], now, { color: true }).split('\n')[0]!;
-    expect(header.startsWith('\x1b[1mAccount')).toBe(true);
-    expect(header.endsWith('Resets at\x1b[0m')).toBe(true);
-  });
-});
-
-describe('renderRecommendation', () => {
+describe('renderOverview', () => {
   const at = (hours: number) => new Date(now.getTime() + hours * 3_600_000);
-  const claudeAccount = (label: string, session: number, weekly: number, weeklyIn: number, fable: number): AccountUsage => ({
-    account: { provider: 'claude', label },
-    status: 'ok',
-    limits: [
-      { label: '5h', kind: 'session', percent: session, resetsAt: at(3), severity: 'normal' },
-      { label: 'Week (all)', kind: 'weekly', percent: weekly, resetsAt: at(weeklyIn), severity: 'normal' },
-      { label: 'Week (Fable)', kind: 'model', percent: fable, resetsAt: at(weeklyIn), severity: 'critical' },
-    ],
+  const session = (percent: number, hours: number | null): Limit => ({
+    label: '5h',
+    kind: 'session',
+    percent,
+    resetsAt: hours === null ? null : at(hours),
+    severity: severityForPercent(percent),
   });
-  const chatgpt: AccountUsage = {
-    account: { provider: 'chatgpt', label: 'pro' },
-    status: 'ok',
-    limits: [{ label: 'Week', kind: 'weekly', percent: 100, resetsAt: at(71), severity: 'critical' }],
-  };
+  const week = (percent: number, hours: number | null, label = 'Week (all)'): Limit => ({
+    label,
+    kind: 'weekly',
+    percent,
+    resetsAt: hours === null ? null : at(hours),
+    severity: severityForPercent(percent),
+  });
+  const fable = (percent: number, hours: number): Limit => ({
+    label: 'Week (Fable)',
+    kind: 'model',
+    percent,
+    resetsAt: at(hours),
+    severity: severityForPercent(percent),
+  });
+  const claude = (label: string, limits: Limit[]): AccountUsage => ({ account: { provider: 'claude', label }, status: 'ok', limits });
+  const chatgpt = (label: string, limits: Limit[]): AccountUsage => ({ account: { provider: 'chatgpt', label }, status: 'ok', limits });
+  const astra = (blocked: boolean, hours: number): Limit => ({
+    label: 'gpt-6-astra',
+    kind: 'model',
+    percent: null,
+    resetsAt: blocked ? at(hours) : null,
+    severity: blocked ? 'critical' : 'normal',
+    detail: blocked ? 'blocked' : 'available',
+  });
+  const plain = (usages: AccountUsage[]) => renderOverview(usages, now, { color: false });
+  const RED = '\x1b[31m';
+  const YELLOW = '\x1b[33m';
+  const DIM = '\x1b[2m';
 
-  it('names the account to use per provider and the model limits used up everywhere', () => {
-    const output = renderRecommendation(
-      [claudeAccount('soon', 10, 56, 17.65, 100), claudeAccount('later', 74, 69, 94, 100), chatgpt],
-      now,
-      { color: false },
-    );
+  it('names the account to use now, then lists accounts by weekly reset with shared columns', () => {
+    const output = plain([
+      claude('dotidot', [session(3, 4.5), week(9, 163), fable(0, 163)]),
+      claude('info', [session(0, null), week(79, 96), fable(100, 96)]),
+      claude('pvachek', [session(20, 4.5), week(78, 22.25), fable(100, 22.25)]),
+      chatgpt('ja', [week(100, 24.5, 'Week'), astra(true, 24.5)]),
+    ]);
     expect(output.split('\n')).toEqual([
-      'Recommendation',
-      '  Claude   use claude/soon: 44 % of its weekly limit lapses in 17h 39m; 5h window 90 % free',
-      '  ChatGPT  nothing usable now; chatgpt/pro frees up in 2d 23h (Sat 22:00)',
+      'Use now  which account to work on right now',
+      '  ▶ Claude   use pvachek — 22 % lapses in 22h 15m · 5h 80 % free',
+      '  ✗ ChatGPT  nothing usable — back in 1d 0h on ja',
       '',
-      'Model limits',
-      '  Week (Fable) (Claude)  used up on every account; frees up first in 17h 39m (Thu 16:39) on claude/soon',
+      'Accounts  burn top to bottom: earliest weekly reset first',
+      '    Claude   5h           Week              Fable        Resets in  Burn',
+      '  ▶ pvachek  █░░░░  20 %  ████████░░  78 %  ✗ used       22h 15m     22 %',
+      '    info     ░░░░░   0 %  ████████░░  79 %  ✗ used       4d 0h       21 %',
+      '    dotidot  ░░░░░   3 %  █░░░░░░░░░   9 %    0 %        6d 19h      91 %  Fable first',
+      '',
+      '    ChatGPT  5h           Week              gpt-6-astra  Resets in  Burn',
+      '  ✗ ja       —            ██████████ 100 %  ✗ used       1d 0h      —      week used up · back in 1d 0h',
     ]);
   });
 
-  it('names the short window by its own label', () => {
+  it('keeps an account waiting for its 5h window in place and recommends the next one', () => {
+    const output = plain([
+      claude('soon', [session(100, 2.5), week(78, 22), fable(100, 22)]),
+      claude('later', [session(0, null), week(79, 96), fable(100, 96)]),
+    ]);
+    const lines = output.split('\n');
+    expect(lines[1]).toBe('  ▶ Claude  use later — 21 % lapses in 4d 0h · 5h 100 % free · back to soon in 2h 30m');
+    expect(lines[5]).toMatch(/^ {2}‖ soon +█████ 100 %/);
+    expect(lines[5]).toContain('5h back in 2h 30m');
+    expect(lines[6]).toMatch(/^ {2}▶ later/);
+  });
+
+  it('marks an account with under 10 % of its 5h window left as waiting', () => {
+    const output = plain([claude('low', [session(93, 1), week(50, 20)]), claude('roomy', [session(10, 1), week(50, 40)])]);
+    expect(output).toContain('‖ low');
+    expect(output).toContain('5h 7 % left');
+    expect(output).toContain('use roomy');
+    expect(output).toContain('back to low in 1h 0m');
+  });
+
+  it('puts accounts with a used-up weekly limit after the burn order, red at 100 % and dimmed otherwise', () => {
+    const usages = [
+      claude('out', [session(0, null), week(100, 30), fable(100, 30)]),
+      claude('a', [session(10, 2), week(60, 50)]),
+      claude('b', [session(10, 2), week(20, 100)]),
+    ];
+    const lines = plain(usages).split('\n');
+    expect(lines.slice(5, 8).map((line) => line.slice(4, 7))).toEqual(['a  ', 'b  ', 'out']);
+    expect(lines[7]).toMatch(/^ {2}✗ out/);
+    expect(lines[7]).toContain('week used up · back in 1d 6h');
+    const colored = renderOverview(usages, now, { color: true });
+    expect(colored).toContain(`${RED}██████████ 100 %`);
+    expect(colored).toContain(`${DIM}░░░░░   0 %`);
+  });
+
+  it('colours how much is left by the pace needed to use it up and names that pace when it is tight', () => {
+    const usages = [claude('rush', [session(0, null), week(35, 9)]), claude('tight', [session(0, null), week(30, 40)]), claude('easy', [session(0, null), week(9, 163)])];
+    const output = plain(usages);
+    expect(output).toContain('needs 7.2 %/h');
+    expect(output).toContain('needs 1.8 %/h');
+    expect(output).not.toMatch(/easy.*needs/);
+    const colored = renderOverview(usages, now, { color: true });
+    expect(colored).toContain(`${RED} 65 %`);
+    expect(colored).toContain(`${YELLOW} 70 %`);
+  });
+
+  it('suggests each model with room once, on the first account in burn order that has it', () => {
+    const output = plain([claude('first', [week(10, 10), fable(0, 10)]), claude('second', [week(10, 50), fable(0, 50)])]);
+    expect(output).toMatch(/first .*Fable first/);
+    expect(output).not.toMatch(/second .*Fable first/);
+  });
+
+  it('shows when a used-up model comes back when that differs from the weekly reset', () => {
+    const pro5h: Limit = { label: 'GPT-6 Pro 5h', kind: 'model', percent: 100, resetsAt: at(2), severity: 'critical' };
+    const pro: Limit = { label: 'GPT-6 Pro Week', kind: 'model', percent: 40, resetsAt: at(120), severity: 'normal' };
+    const output = plain([chatgpt('pro', [week(40, 120, 'Week'), pro5h, pro, astra(true, 5)]), claude('max', [week(10, 50), fable(100, 50)])]);
+    expect(output).toMatch(/▶ pro .*✗ 2h 0m +✗ 5h 0m +5d 0h/);
+    expect(output).toMatch(/max .*✗ used/);
+    const unknown = plain([chatgpt('x', [week(40, 120, 'Week'), { ...astra(true, 0), resetsAt: null }])]);
+    expect(unknown).toMatch(/x .*✗ unknown/);
+  });
+
+  it('orders by the weekly reset even when the weekly limit has no percent', () => {
+    const noPercent: Limit = { ...week(0, 5), percent: null, detail: 'n/a' };
+    const lines = plain([claude('known', [week(10, 50)]), claude('no-percent', [noPercent])]).split('\n');
+    expect(lines[1]).toContain('use no-percent');
+    expect(lines[5]).toMatch(/^ {2}▶ no-percent/);
+    expect(lines[6]).toMatch(/known/);
+  });
+
+  it('puts an unknown weekly reset last and says so', () => {
+    const output = plain([claude('unknown', [week(30, null)]), claude('known', [week(30, 100)]), claude('also-unknown', [week(30, null)])]);
+    const lines = output.split('\n');
+    expect(lines[5]).toMatch(/known/);
+    expect(lines[6]).toMatch(/unknown .*unknown .*reset unknown/);
+    expect(lines[7]).toMatch(/also-unknown/);
+  });
+
+  it('lists accounts without limits and failed accounts last, and a provider whose accounts all failed', () => {
+    const output = plain([
+      claude('ok', [week(10, 10)]),
+      { account: { provider: 'claude', label: 'broken' }, status: 'error', message: 'login expired', hint: 'aiu login claude --name broken' },
+      claude('empty', []),
+      ...usages.slice(1),
+    ]);
+    const lines = output.split('\n');
+    expect(lines).toContain('  ✗ Grok    no data: every account failed');
+    expect(lines.findIndex((line) => line.includes('empty'))).toBeGreaterThan(lines.findIndex((line) => line.includes('▶ ok')));
+    expect(output).toContain('! broken  login expired — run: aiu login claude --name broken');
+    expect(output).toMatch(/ {2}empty {3}no limits reported/);
+    expect(output).toContain('    Grok\n  ! main    cookie expired — run: aiu login grok --name main');
+  });
+
+  it('shows the detail of a limit without percent', () => {
     const grok: AccountUsage = {
       account: { provider: 'grok', label: 'free' },
       status: 'ok',
-      limits: [{ label: '2h', kind: 'session', percent: 25, resetsAt: null, severity: 'normal', detail: '15/20 left' }],
+      limits: [{ label: '2h', kind: 'session', percent: null, resetsAt: null, severity: 'normal', detail: '15/20 left' }],
     };
-    expect(renderRecommendation([grok], now, { color: false })).toContain('  Grok  use grok/free: 2h window 75 % free');
-    const noWindow: AccountUsage = { ...grok, limits: [{ ...grok.limits[0]!, label: 'Queries' }] };
-    expect(renderRecommendation([noWindow], now, { color: false })).toContain('use grok/free: Queries 75 % free');
+    const output = plain([grok, chatgpt('pro', [week(10, 30, 'Week'), astra(false, 0)])]);
+    expect(output).toContain('15/20 left');
+    expect(output).toContain('available');
+    expect(output).toMatch(/Grok +2h/);
   });
 
-  it('lists where a model is still available', () => {
-    const output = renderRecommendation([claudeAccount('a', 0, 0, 90, 100), claudeAccount('b', 0, 0, 20, 30)], now, {
-      color: false,
-    });
-    expect(output).toContain('Week (Fable) (Claude)  still available on claude/b');
-  });
-
-  it('says "now" instead of "in now" for a reset that has already passed', () => {
-    const past = at(-1);
-    const output = renderRecommendation(
-      [
-        {
-          account: { provider: 'chatgpt', label: 'pro' },
-          status: 'ok',
-          limits: [{ label: 'Week', kind: 'weekly', percent: 100, resetsAt: past, severity: 'critical' }],
-        },
-      ],
-      now,
-      { color: false },
-    );
+  it('says "now" for a weekly reset that has already passed', () => {
+    const output = plain([claude('x', [week(40, -1)])]);
+    expect(output).toContain('60 % lapses now');
     expect(output).not.toContain('in now');
-    expect(output).toContain(`chatgpt/pro frees up now (${formatReset(past)})`);
   });
 
-  it('says when a provider reports no limit data', () => {
-    const output = renderRecommendation([{ account: { provider: 'claude', label: 'x' }, status: 'ok', limits: [] }], now, {
-      color: false,
-    });
-    expect(output).toContain('Claude  no 5h or weekly limit data to recommend from');
+  it('says when a provider reports no 5h or weekly limit', () => {
+    const output = plain([claude('x', [fable(10, 10)])]);
+    expect(output).toContain('✗ Claude  no 5h or weekly limit data to recommend from');
   });
 
-  it('is empty without usable data', () => {
-    expect(renderRecommendation([usages[1]!], now, { color: false })).toBe('');
-  });
-});
-
-describe('renderPlan', () => {
-  const at = (hours: number) => new Date(now.getTime() + hours * 3_600_000);
-  const account = (label: string, limits: Limit[]): AccountUsage => ({ account: { provider: 'claude', label }, status: 'ok', limits });
-  const week = (percent: number, hours: number): Limit => ({ label: 'Week (all)', kind: 'weekly', percent, resetsAt: at(hours), severity: 'normal' });
-  const fable = (percent: number, hours: number): Limit => ({ label: 'Week (Fable)', kind: 'model', percent, resetsAt: at(hours), severity: 'normal' });
-  const session = (percent: number, hours: number): Limit => ({ label: '5h', kind: 'session', percent, resetsAt: at(hours), severity: 'normal' });
-
-  it('lists accounts by deadline with model and 5h notes, then providers with nothing usable', () => {
-    const output = renderPlan(
-      [
-        account('c', [session(33, 3), week(74, 106), fable(60, 106)]),
-        account('a', [session(3, 3), week(57, 5), fable(100, 5)]),
-        account('b', [session(100, 2), week(73, 33), fable(100, 33)]),
-        {
-          account: { provider: 'chatgpt', label: 'pro' },
-          status: 'ok',
-          limits: [{ label: 'Week', kind: 'weekly', percent: 100, resetsAt: at(71), severity: 'critical' }],
-        },
-      ],
-      now,
-      { color: false },
-    );
-    expect(output.split('\n')).toEqual([
-      'Plan',
-      '  Claude   now → Thu 04:00  (5h 0m)   claude/a  burn 43 %',
-      '               → Fri 08:00  (1d 9h)   claude/b  burn 27 %  5h window frees up in 2h 0m',
-      '               → Mon 09:00  (4d 10h)  claude/c  burn 26 %  with Fable first',
-      '           Fable back: Thu 04:00 on claude/a · Fri 08:00 on claude/b',
-      '  ChatGPT  nothing usable · back in 2d 23h (Sat 22:00) on chatgpt/pro',
-    ]);
-  });
-
-  it('starts with the recommended account and says "now" only when one is usable', () => {
-    const roomy = renderPlan([account('low-room', [session(95, 1), week(50, 10)]), account('roomy', [session(0, 1), week(20, 40)])], now, {
-      color: false,
-    });
-    expect(roomy).toContain('now → Fri 15:00');
-    expect(roomy.indexOf('claude/roomy')).toBeLessThan(roomy.indexOf('claude/low-room'));
-    const blocked = renderPlan([account('x', [session(100, 1), week(50, 10)])], now, { color: false });
-    expect(blocked).not.toContain('now');
-    expect(blocked).toContain('  Claude      → Thu 09:00');
-  });
-
-  it('renders an unknown weekly reset', () => {
-    const output = renderPlan([account('x', [{ ...week(10, 0), resetsAt: null }])], now, { color: false });
-    expect(output).toContain('now → unknown');
-    expect(output).toContain('claude/x  burn 90 %');
-  });
-
-  it('names every model with room', () => {
-    const opus: Limit = { ...fable(10, 50), label: 'Week (Opus)' };
-    const output = renderPlan([account('x', [week(0, 50), fable(0, 50), opus])], now, { color: false });
-    expect(output).toContain('burn 100 %  with Fable, Opus first');
-  });
-
-  it('skips providers without a weekly limit and is empty when none is left', () => {
-    const grok: AccountUsage = {
-      account: { provider: 'grok', label: 'free' },
-      status: 'ok',
-      limits: [{ label: '2h', kind: 'session', percent: 25, resetsAt: null, severity: 'normal' }],
-    };
-    expect(renderPlan([grok], now, { color: false })).toBe('');
+  it('emits ANSI codes only when color is enabled', () => {
+    expect(plain(usages)).not.toContain('\x1b[');
+    expect(renderOverview(usages, now, { color: true })).toContain('\x1b[1mUse now\x1b[0m');
   });
 });

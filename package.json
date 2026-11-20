@@ -13,6 +13,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "docs:examples": "node scripts/readme-examples.ts",
     "hooks:install": "bash scripts/setup-hooks.sh",
     "hooks:doctor": "bash scripts/check-hooks.sh",
     "postinstall": "if [ -f scripts/setup-hooks.sh ]; then bash scripts/setup-hooks.sh; fi"

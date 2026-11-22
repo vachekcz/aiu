@@ -77,23 +77,33 @@ export interface Advice {
 }
 
 export const SESSION_ROOM = 10;
-const HOUR_MS = 3_600_000;
+export const HOUR_MS = 3_600_000;
 // Weekly limit without a known reset: assume a full week, so it never looks more urgent than it is.
 const UNKNOWN_RESET_HOURS = 7 * 24;
 
 type OkUsage = Extract<AccountUsage, { status: 'ok' }>;
 
 export const isUsedUp = (limit: Limit): boolean => (limit.percent ?? 0) >= 100 || limit.detail === 'blocked';
-const left = (limit: Limit | undefined): number | undefined =>
+/** % of the limit still unused, or undefined when the limit or its percentage is missing. */
+export const percentLeft = (limit: Limit | undefined): number | undefined =>
   limit?.percent === null || limit === undefined ? undefined : Math.max(0, 100 - limit.percent);
 export const findKind = (usage: OkUsage, kind: Limit['kind']) => usage.limits.find((limit) => limit.kind === kind);
 
-/** Latest reset among the used-up gating limits, i.e. when the account is usable again (null if unknown). */
-export function freesUpAt(usage: OkUsage): Date | null {
-  const blocking = usage.limits.filter((limit) => (limit.kind === 'session' || limit.kind === 'weekly') && isUsedUp(limit));
-  if (blocking.some((limit) => limit.resetsAt === null)) return null;
-  return blocking.reduce<Date | null>((latest, limit) => (!latest || limit.resetsAt! > latest ? limit.resetsAt : latest), null);
+/** Under SESSION_ROOM % left of the 5h window: too little to start work on. Unknown usage is not low. */
+export const isSessionLow = (session: Limit | undefined): boolean => (percentLeft(session) ?? 100) < SESSION_ROOM;
+
+/** Used-up limits of unknown kind: they may or may not gate the account, so it counts like a nearly full 5h window. */
+export const unknownUsedUp = (usage: OkUsage): Limit[] => usage.limits.filter((limit) => !limit.kind && isUsedUp(limit));
+
+/** The latest reset of these limits, or null when there are none or any of them is unknown. */
+export function latestReset(limits: Limit[]): Date | null {
+  if (limits.some((limit) => limit.resetsAt === null)) return null;
+  return limits.reduce<Date | null>((latest, limit) => (!latest || limit.resetsAt! > latest ? limit.resetsAt : latest), null);
 }
+
+/** Latest reset among the used-up gating limits, i.e. when the account is usable again (null if unknown). */
+export const freesUpAt = (usage: OkUsage): Date | null =>
+  latestReset(usage.limits.filter((limit) => (limit.kind === 'session' || limit.kind === 'weekly') && isUsedUp(limit)));
 
 /** The entry with the earliest date, or undefined when any date is unknown (then nobody is known to be first). */
 function earliest<T>(entries: T[], dateOf: (entry: T) => Date | null): T | undefined {
@@ -103,7 +113,7 @@ function earliest<T>(entries: T[], dateOf: (entry: T) => Date | null): T | undef
 
 /** % per hour this limit would have to be used at to use up what is left before its reset. */
 function urgency(gate: Limit | undefined, now: Date): number {
-  const remaining = left(gate) ?? 0;
+  const remaining = percentLeft(gate) ?? 0;
   const hours = gate?.resetsAt ? Math.max((gate.resetsAt.getTime() - now.getTime()) / HOUR_MS, 1 / 60) : UNKNOWN_RESET_HOURS;
   return remaining / hours;
 }
@@ -130,9 +140,7 @@ function adviseProvider(provider: ProviderId, allUsages: OkUsage[], now: Date): 
       ...(first ? { availableAccountId: accountId(first.account) } : {}),
     };
   }
-  // A used-up limit of unknown kind may or may not gate the account, so it counts like a nearly full 5h window.
-  const hasRoom = (usage: OkUsage) =>
-    (left(findKind(usage, 'session')) ?? 100) >= SESSION_ROOM && !usage.limits.some((limit) => !limit.kind && isUsedUp(limit));
+  const hasRoom = (usage: OkUsage) => !isSessionLow(findKind(usage, 'session')) && unknownUsedUp(usage).length === 0;
   const hasWeekly = (usage: OkUsage) => findKind(usage, 'weekly') !== undefined;
   const rankSession = (usage: OkUsage) => urgency(findKind(usage, 'session'), now);
   const [best] = [...usable].sort(
@@ -143,8 +151,8 @@ function adviseProvider(provider: ProviderId, allUsages: OkUsage[], now: Date): 
   );
   const weekly = findKind(best!, 'weekly');
   const session = findKind(best!, 'session');
-  const sessionLeft = left(session);
-  const weeklyLeft = left(weekly);
+  const sessionLeft = percentLeft(session);
+  const weeklyLeft = percentLeft(weekly);
   return {
     provider,
     accountId: accountId(best!.account),
@@ -198,7 +206,7 @@ function planProvider(provider: ProviderId, usages: OkUsage[]): ProviderPlan {
       return [
         {
           accountId: accountId(usage.account),
-          weeklyLeft: left(weekly)!,
+          weeklyLeft: percentLeft(weekly)!,
           resetsAt: weekly.resetsAt,
           premium,
           ...(session && isUsedUp(session) ? { sessionBlocked: { label: session.label, resetsAt: session.resetsAt } } : {}),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recommend } from '../src/recommend.ts';
+import { freesUpAt, isSessionLow, isUsedUp, latestReset, percentLeft, recommend, SESSION_ROOM, unknownUsedUp } from '../src/recommend.ts';
 import type { AccountUsage, Limit, ProviderId } from '../src/types.ts';
 
 const now = new Date('2026-11-18T22:00:00Z');
@@ -252,5 +252,61 @@ describe('plan', () => {
   it('starts with the recommended account when it has room', () => {
     const advice = recommend([claude('a', 0, 40, 10), claude('b', 0, 95, 2), claude('c', 50, 0, 100)], now);
     expect(advice.plan[0]?.steps[0]?.accountId).toBe(advice.providers[0]?.accountId);
+  });
+});
+
+describe('shared limit rules', () => {
+  const unknown = (label: string, percent: number | null, resetsInHours: number | null): Limit => ({
+    label,
+    percent,
+    severity: 'normal',
+    resetsAt: resetsInHours === null ? null : inHours(resetsInHours),
+  });
+
+  it('percentLeft is what remains of a known limit, never negative', () => {
+    expect(percentLeft(limit('weekly', 'Week', 30, 5))).toBe(70);
+    expect(percentLeft(limit('weekly', 'Week', 120, 5))).toBe(0);
+    expect(percentLeft(limit('weekly', 'Week', null, 5))).toBeUndefined();
+    expect(percentLeft(undefined)).toBeUndefined();
+  });
+
+  it('isUsedUp covers a full limit and a blocked one without a percentage', () => {
+    expect(isUsedUp(limit('session', '5h', 99.9, 1))).toBe(false);
+    expect(isUsedUp(limit('session', '5h', 100, 1))).toBe(true);
+    expect(isUsedUp({ ...limit('model', 'astra', null, 1), detail: 'blocked' })).toBe(true);
+    expect(isUsedUp({ ...limit('model', 'astra', null, 1), detail: 'available' })).toBe(false);
+  });
+
+  it('isSessionLow starts right under SESSION_ROOM % left', () => {
+    expect(isSessionLow(limit('session', '5h', 100 - SESSION_ROOM, 1))).toBe(false);
+    expect(isSessionLow(limit('session', '5h', 100 - SESSION_ROOM + 0.1, 1))).toBe(true);
+    expect(isSessionLow(limit('session', '5h', 100, 1))).toBe(true);
+  });
+
+  it('isSessionLow treats a missing 5h window or percentage as room to work', () => {
+    expect(isSessionLow(undefined)).toBe(false);
+    expect(isSessionLow(limit('session', '5h', null, 1))).toBe(false);
+  });
+
+  it('unknownUsedUp lists only used-up limits without a kind', () => {
+    const usage = ok('grok', 'main', [limit('session', '5h', 100, 1), unknown('Queries', 100, 2), unknown('Images', 40, 2)]);
+    expect(usage.status === 'ok' && unknownUsedUp(usage).map((entry) => entry.label)).toEqual(['Queries']);
+  });
+
+  it('latestReset is the last of the resets, or null when one is unknown or there are none', () => {
+    expect(latestReset([limit('session', '5h', 100, 2), limit('weekly', 'Week', 100, 30)])).toEqual(inHours(30));
+    expect(latestReset([limit('session', '5h', 100, 2), limit('weekly', 'Week', 100, null)])).toBeNull();
+    expect(latestReset([])).toBeNull();
+  });
+
+  it('freesUpAt waits for every used-up gating limit and ignores models and limits with room', () => {
+    const usage = ok('claude', 'work', [
+      limit('session', '5h', 100, 2),
+      limit('weekly', 'Week (all)', 100, 30),
+      limit('model', 'Week (Fable)', 100, 90),
+    ]);
+    const roomy = ok('claude', 'free', [limit('session', '5h', 20, 2), limit('weekly', 'Week (all)', 20, 30)]);
+    expect(usage.status === 'ok' && freesUpAt(usage)).toEqual(inHours(30));
+    expect(roomy.status === 'ok' && freesUpAt(roomy)).toBeNull();
   });
 });

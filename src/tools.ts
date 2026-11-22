@@ -167,9 +167,14 @@ export async function inspectTools(deps: ToolDeps, options: { fresh?: boolean; o
   return statuses.filter((status) => status !== null);
 }
 
+// Colour codes and other terminal control sequences a tool prints for its own progress display.
+const CONTROL_SEQUENCES = /\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b[@-_]/g;
+
+/** The last thing the tool printed, as plain text: a line redrawn with `\r` counts by its final state. */
 const lastLine = (output: string): string | undefined =>
   output
-    .split('\n')
+    .replace(CONTROL_SEQUENCES, '')
+    .split(/[\r\n]/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .at(-1);
@@ -187,10 +192,15 @@ export async function updateTool(id: ToolId, deps: ToolDeps): Promise<UpdateOutc
   // Whatever happened, the cached latest version may no longer describe this tool.
   const { [id]: _dropped, ...rest } = await readCache(deps);
   await writeCache(deps, rest);
+  // A timeout would otherwise be reported with whatever progress line the tool printed last.
+  if (result.code === null) return { id, status: 'failed', version: status.installed, reason: 'timed out or could not start' };
   if (result.code !== 0) {
-    const reason = lastLine(result.output) ?? (result.code === null ? 'timed out or could not start' : `exit code ${result.code}`);
-    return { id, status: 'failed', version: status.installed, reason };
+    return { id, status: 'failed', version: status.installed, reason: lastLine(result.output) ?? `exit code ${result.code}` };
   }
   const after = (await installedVersion(id, deps).catch(() => null)) ?? status.installed;
-  return after === status.installed ? { id, status: 'current', version: after } : { id, status: 'updated', from: status.installed, to: after };
+  if (after !== status.installed) return { id, status: 'updated', from: status.installed, to: after };
+  // The tool said it succeeded but stayed on a version known to be behind (e.g. it follows a slower
+  // release channel): saying "already latest" would contradict the Tools section.
+  if (status.updateAvailable) return { id, status: 'failed', version: after, reason: `not updated, latest is ${status.latest}` };
+  return { id, status: 'current', version: after };
 }

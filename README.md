@@ -128,7 +128,8 @@ are looked up at most once a day, in parallel with the usage, and a lookup that 
 ```
 
 Name the tools to update only those (`chatgpt` also means `codex`). A tool that is already up to date is
-not run. One failing tool does not stop the others; the command then exits with code 1.
+not run. A tool whose `update` succeeds but leaves it on an older version (it may follow a slower release
+channel) is reported as failed. One failing tool does not stop the others; the command then exits with code 1.
 
 ## How it stores things
 

@@ -210,9 +210,9 @@ describe('updateTool', () => {
     expect(commands).toContain(`claude update @${UPDATE_TIMEOUT_MS}`);
   });
 
-  it('reports a version that did not change as already current', async () => {
+  it('does not call a tool up to date when its update changed nothing and a newer version is known', async () => {
     updates.grok = { result: ok('') };
-    expect(await updateTool('grok', deps())).toEqual({ id: 'grok', status: 'current', version: '1.0.89' });
+    expect(await updateTool('grok', deps())).toEqual({ id: 'grok', status: 'failed', version: '1.0.89', reason: 'not updated, latest is 1.0.92' });
   });
 
   it('reports a failed update with the last line the tool printed', async () => {
@@ -220,11 +220,19 @@ describe('updateTool', () => {
     expect(await updateTool('claude', deps())).toEqual({ id: 'claude', status: 'failed', version: '2.1.330', reason: 'npm exited with code 1' });
   });
 
-  it('names the exit code or the timeout when a failed update printed nothing', async () => {
+  it('names the exit code when a failed update printed nothing', async () => {
     updates.claude = { result: { code: 3, output: '' } };
     expect(await updateTool('claude', deps())).toMatchObject({ status: 'failed', reason: 'exit code 3' });
-    updates.claude = { result: { code: null, output: '' } };
+  });
+
+  it('reports a timeout as a timeout, not as the last progress line', async () => {
+    updates.claude = { result: { code: null, output: 'Downloading 2.1.341\n' } };
     expect(await updateTool('claude', deps())).toMatchObject({ status: 'failed', reason: 'timed out or could not start' });
+  });
+
+  it('strips colour codes and redrawn progress from the failure reason', async () => {
+    updates.claude = { result: { code: 1, output: 'Checking\n10 %\r50 %\r\x1b[31mError: boom\x1b[0m\n' } };
+    expect(await updateTool('claude', deps())).toMatchObject({ status: 'failed', reason: 'Error: boom' });
   });
 
   it('reports a tool that is not installed', async () => {

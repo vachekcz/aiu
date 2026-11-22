@@ -27,7 +27,7 @@ const USAGE = `Usage:
                                              defaults to the login e-mail (not for grok)
   aiu accounts                               list configured accounts
   aiu remove <provider>/<label>              remove an account and its stored login
-  aiu update [${TOOL_IDS.join('|')}]...           update the CLI tools (all installed ones by default)`;
+  aiu update [${TOOL_IDS.join('|')}]...          update the CLI tools (all installed ones by default)`;
 
 export interface CliDeps {
   providers: Partial<Record<ProviderId, Provider<unknown>>>;

@@ -123,18 +123,17 @@ describe('parseGrokRateLimits', () => {
 
   it('skips a response without usable counts', () => {
     expect(parseGrokRateLimits({ windowSizeSeconds: 7200 })).toBeNull();
+    expect(parseGrokRateLimits({ remainingQueries: 1, totalQueries: 0 })).toBeNull();
+    expect(parseGrokRateLimits('nope')).toBeNull();
   });
 
   it('treats a window of a week or longer as the weekly limit', () => {
     expect(parseGrokRateLimits({ windowSizeSeconds: 604_800, remainingQueries: 5, totalQueries: 20 })).toMatchObject({ label: 'Week', kind: 'weekly' });
     expect(parseGrokRateLimits({ windowSizeSeconds: 7200, remainingQueries: 5, totalQueries: 20 })).toMatchObject({ label: '2h', kind: 'session' });
-    expect(parseGrokRateLimits({ remainingQueries: 5, totalQueries: 20 })).toMatchObject({ label: 'Queries', kind: 'session' });
-    expect(parseGrokRateLimits({ remainingQueries: 1, totalQueries: 0 })).toBeNull();
-    expect(parseGrokRateLimits('nope')).toBeNull();
   });
 
   it('labels a missing window plainly', () => {
-    expect(parseGrokRateLimits({ remainingQueries: 5, totalQueries: 10 })?.label).toBe('Queries');
+    expect(parseGrokRateLimits({ remainingQueries: 5, totalQueries: 10 })).toMatchObject({ label: 'Queries', kind: 'session' });
   });
 });
 

@@ -167,13 +167,16 @@ export async function inspectTools(deps: ToolDeps, options: { fresh?: boolean; o
   return statuses.filter((status) => status !== null);
 }
 
-// Colour codes and other terminal control sequences a tool prints for its own progress display.
-const CONTROL_SEQUENCES = /\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b[@-_]/g;
+// Terminal control sequences a tool prints for its own display: OSC (window title, links), CSI (colour,
+// cursor) and two-character escapes, then any control character left over.
+const CONTROL_SEQUENCES = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b[@-_]/g;
+const CONTROL_CHARACTERS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
 
 /** The last thing the tool printed, as plain text: a line redrawn with `\r` counts by its final state. */
 const lastLine = (output: string): string | undefined =>
   output
     .replace(CONTROL_SEQUENCES, '')
+    .replace(CONTROL_CHARACTERS, '')
     .split(/[\r\n]/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
@@ -197,7 +200,9 @@ export async function updateTool(id: ToolId, deps: ToolDeps): Promise<UpdateOutc
   if (result.code !== 0) {
     return { id, status: 'failed', version: status.installed, reason: lastLine(result.output) ?? `exit code ${result.code}` };
   }
-  const after = (await installedVersion(id, deps).catch(() => null)) ?? status.installed;
+  const after = await installedVersion(id, deps).catch(() => null);
+  // Without the new version there is nothing to tell an update from a no-op.
+  if (after === null) return { id, status: 'failed', version: status.installed, reason: 'could not read the version after the update' };
   if (after !== status.installed) return { id, status: 'updated', from: status.installed, to: after };
   // The tool said it succeeded but stayed on a version known to be behind (e.g. it follows a slower
   // release channel): saying "already latest" would contradict the Tools section.

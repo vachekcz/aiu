@@ -235,6 +235,28 @@ describe('updateTool', () => {
     expect(await updateTool('claude', deps())).toMatchObject({ status: 'failed', reason: 'Error: boom' });
   });
 
+  it('strips window titles, links and stray control characters from the failure reason', async () => {
+    updates.claude = { result: { code: 1, output: 'Error: boom\n\x1b]0;claude\x07\n' } };
+    expect(await updateTool('claude', deps())).toMatchObject({ reason: 'Error: boom' });
+    updates.claude = { result: { code: 1, output: 'see \x1b]8;;https://example.com/x\x1b\\the docs\x1b]8;;\x1b\\\x07\b\n' } };
+    expect(await updateTool('claude', deps())).toMatchObject({ reason: 'see the docs' });
+  });
+
+  it('does not guess the outcome when the version cannot be read after the update', async () => {
+    const base = deps();
+    let updated = false;
+    const unreadable: ToolDeps = {
+      ...base,
+      run: async (command, args, timeoutMs) => {
+        if (args[0] === 'update') updated = true;
+        if (updated && args[0] === '--version') return { code: null, output: '' };
+        return base.run(command, args, timeoutMs);
+      },
+    };
+    updates.grok = { result: ok('done'), installs: 'grok 1.0.92' };
+    expect(await updateTool('grok', unreadable)).toEqual({ id: 'grok', status: 'failed', version: '1.0.89', reason: 'could not read the version after the update' });
+  });
+
   it('reports a tool that is not installed', async () => {
     delete installed.grok;
     expect(await updateTool('grok', deps())).toEqual({ id: 'grok', status: 'missing' });

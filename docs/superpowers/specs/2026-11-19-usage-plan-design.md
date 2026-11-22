@@ -1,7 +1,7 @@
 # Usage plan — Design
 
 Date: 2026-11-19
-Status: draft, awaiting approval
+Status: implemented. A record of the design at the time; where it differs from the README or the code, those are right.
 
 ## Intent
 

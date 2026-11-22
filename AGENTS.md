@@ -40,7 +40,9 @@ of the hook in CI too, and the docs-only patterns of both in line.
   whole command.
 - The renderer knows only the normalised `Limit`, never a provider's response
   shape. Parsers tolerate unknown and missing fields.
-- Tests never hit real endpoints; stub `fetch`.
+- Tests never hit real endpoints; stub `fetch`. Shared fakes and builders live
+  in `tests/helpers/` (`stubFetch`, `fakeToolDeps`, `usageBuilders`); extend
+  them instead of writing a local copy.
 - Code, identifiers, comments, CLI output and commit messages are in English.
   PR title, body and review comments are in Czech.
 - Exception: `scripts/pr-review-comment.sh` (bundle `pr-review`) and

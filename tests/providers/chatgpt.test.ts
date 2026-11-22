@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chatgptProvider, parseChatGptUsage, windowLabel } from '../../src/providers/chatgpt.ts';
+import { chatgptProvider, parseChatGptUsage } from '../../src/providers/chatgpt.ts';
 import { AuthExpiredError, type LoginIO } from '../../src/types.ts';
 import { httpGet } from '../helpers/http.ts';
 
@@ -22,15 +22,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-});
-
-describe('windowLabel', () => {
-  it('names common window lengths', () => {
-    expect(windowLabel(18000)).toBe('5h');
-    expect(windowLabel(604800)).toBe('Week');
-    expect(windowLabel(86400)).toBe('1d');
-    expect(windowLabel(7200)).toBe('2h');
-  });
 });
 
 describe('parseChatGptUsage', () => {

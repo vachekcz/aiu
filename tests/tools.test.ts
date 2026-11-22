@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { inspectTools, isNewer, resolveToolId, updateTool, UPDATE_TIMEOUT_MS, type CommandResult, type ToolDeps } from '../src/tools.ts';
+import { fakeToolDeps, NOT_RUN, ok } from './helpers/tools.ts';
 
 const NOW = new Date('2026-11-22T12:00:00Z');
 const HOUR_MS = 3_600_000;
@@ -15,36 +16,11 @@ let installed: Record<string, string>;
 let registry: Record<string, string | Error | object>;
 let grokCheck: CommandResult;
 /** What `<tool> update` does: its result, and the version installed afterwards. */
-let updates: Record<string, { result: CommandResult; installs?: string }>;
+let updates: Record<string, { result?: CommandResult; installs?: string }>;
 let commands: string[];
 let requests: string[];
 
-const ok = (output: string): CommandResult => ({ code: 0, output });
-
-function deps(): ToolDeps {
-  return {
-    run: async (command, args, timeoutMs) => {
-      commands.push(`${command} ${args.join(' ')} @${timeoutMs}`);
-      if (args[0] === '--version') return command in installed ? ok(installed[command]!) : { code: null, output: '' };
-      if (command === 'grok' && args.join(' ') === 'update --check --json') return grokCheck;
-      if (args.join(' ') === 'update') {
-        const update = updates[command]!;
-        if (update.installs) installed[command] = update.installs;
-        return update.result;
-      }
-      throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
-    },
-    fetch: (async (url: string) => {
-      requests.push(url);
-      const answer = registry[url.replace('https://registry.npmjs.org/', '').replace('/latest', '')];
-      if (answer instanceof Error) throw answer;
-      if (answer === undefined) return new Response('not found', { status: 404 });
-      return Response.json(typeof answer === 'string' ? { version: answer } : answer);
-    }) as typeof fetch,
-    now: () => now,
-    cacheDir: () => dir,
-  };
-}
+const deps = (): ToolDeps => fakeToolDeps({ dir, now: () => now, installed, registry, grokCheck, updates, commands, requests });
 
 const cacheFile = () => join(dir, 'tool-versions.json');
 const readCache = async () => JSON.parse(await readFile(cacheFile(), 'utf8')) as Record<string, { latest: string; checkedAt: string }>;
@@ -146,7 +122,7 @@ describe('inspectTools', () => {
   it('shows no latest version when the check fails, and does not cache the failure', async () => {
     registry['@anthropic-ai/claude-code'] = new Error('offline');
     delete registry['@openai/codex'];
-    grokCheck = { code: null, output: '' };
+    grokCheck = NOT_RUN;
     expect(await inspectTools(deps())).toEqual([
       { id: 'claude', installed: '2.1.330', latest: null, updateAvailable: false },
       { id: 'codex', installed: '0.171.0', latest: null, updateAvailable: false },

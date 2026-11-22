@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { main, type CliDeps } from '../src/cli.ts';
-import type { ToolDeps } from '../src/tools.ts';
+import { UPDATE_TIMEOUT_MS, type ToolDeps } from '../src/tools.ts';
 import { accountId, type Account, type LoginIO, type Provider } from '../src/types.ts';
+import { fakeToolDeps, latestVersions, type FakeToolState } from './helpers/tools.ts';
 
 const NOW = new Date('2026-11-18T22:00:00Z');
 
@@ -17,32 +18,13 @@ let locks: string[];
 /** What `<tool> --version` prints; no tool is installed unless a test says so. */
 let toolVersions: Record<string, string>;
 /** The latest version the registry (or `grok update --check`) reports per tool. */
-let latestVersions: Record<string, string>;
-/** What `<tool> update` does: the version it installs, or the failure it reports. */
-let toolUpdates: Record<string, { installs?: string; fails?: string }>;
+let latest: { claude?: string; codex?: string; grok?: string };
+/** What `<tool> update` does: its result, and the version installed afterwards. */
+let toolUpdates: FakeToolState['updates'];
 let toolCommands: string[];
 
-const NPM_PACKAGES: Record<string, string> = { '@anthropic-ai/claude-code': 'claude', '@openai/codex': 'codex' };
-
-function toolDeps(): ToolDeps {
-  return {
-    run: async (command, args) => {
-      toolCommands.push([command, ...args].join(' '));
-      if (args[0] === '--version') return command in toolVersions ? { code: 0, output: toolVersions[command]! } : { code: null, output: '' };
-      if (args.includes('--check')) return { code: 0, output: JSON.stringify({ latestVersion: latestVersions[command] }) };
-      const update = toolUpdates[command] ?? {};
-      if (update.fails) return { code: 1, output: update.fails };
-      if (update.installs) toolVersions[command] = update.installs;
-      return { code: 0, output: '' };
-    },
-    fetch: (async (url: string) => {
-      const tool = NPM_PACKAGES[url.replace('https://registry.npmjs.org/', '').replace('/latest', '')];
-      return Response.json({ version: tool ? latestVersions[tool] : undefined });
-    }) as typeof fetch,
-    now: () => NOW,
-    cacheDir: () => dir,
-  };
-}
+const toolDeps = (): ToolDeps =>
+  fakeToolDeps({ dir, now: () => NOW, installed: toolVersions, ...latestVersions(latest), updates: toolUpdates, commands: toolCommands, requests: [] });
 
 const fakeProvider: Provider<{ token: string }> = {
   id: 'claude',
@@ -55,6 +37,8 @@ const fakeProvider: Provider<{ token: string }> = {
     limits: [{ label: '5h', percent: 42, resetsAt: null, severity: 'normal' }],
   }),
 };
+
+const ranUpdate = (tool: string) => toolCommands.some((command) => command.startsWith(`${tool} update @`));
 
 const io: LoginIO = { print: () => undefined, prompt: async () => '', openUrl: async () => undefined };
 
@@ -95,7 +79,7 @@ beforeEach(async () => {
   stderr = '';
   locks = [];
   toolVersions = {};
-  latestVersions = {};
+  latest = {};
   toolUpdates = {};
   toolCommands = [];
 });
@@ -159,7 +143,7 @@ describe('aiu', () => {
 describe('aiu: Tools section', () => {
   beforeEach(() => {
     toolVersions = { claude: '2.1.330 (Claude Code)', grok: 'grok 1.0.89' };
-    latestVersions = { claude: '2.1.341', grok: '1.0.89' };
+    latest = { claude: '2.1.341', grok: '1.0.89' };
     accounts = [{ provider: 'claude', label: 'personal' }];
     credentials.set('claude/personal', { token: 't' });
   });
@@ -226,7 +210,7 @@ describe('aiu: Tools section', () => {
 describe('aiu update', () => {
   beforeEach(() => {
     toolVersions = { claude: '2.1.330 (Claude Code)', codex: 'codex-cli 0.171.0' };
-    latestVersions = { claude: '2.1.341', codex: '0.171.0', grok: '1.0.92' };
+    latest = { claude: '2.1.341', codex: '0.171.0', grok: '1.0.92' };
     toolUpdates = { claude: { installs: '2.1.341 (Claude Code)' } };
   });
 
@@ -235,18 +219,18 @@ describe('aiu update', () => {
     expect(stdout).toBe(
       ['  claude   2.1.330 → 2.1.341   ✓ updated', '  codex    0.171.0             ✓ already latest', ''].join('\n'),
     );
-    expect(toolCommands).toContain('claude update');
-    expect(toolCommands).not.toContain('codex update');
+    expect(toolCommands).toContain(`claude update @${UPDATE_TIMEOUT_MS}`);
+    expect(ranUpdate('codex')).toBe(false);
   });
 
   it('updates only the named tools, accepting chatgpt for codex', async () => {
     expect(await main(['update', 'chatgpt', 'codex'], deps())).toBe(0);
     expect(stdout).toBe('  codex    0.171.0             ✓ already latest\n');
-    expect(toolCommands).not.toContain('claude update');
+    expect(ranUpdate('claude')).toBe(false);
   });
 
   it('reports a failure, carries on with the other tools and exits 1', async () => {
-    toolUpdates = { claude: { fails: 'network unreachable' } };
+    toolUpdates = { claude: { result: { code: 1, output: 'network unreachable' } } };
     expect(await main(['update', 'claude', 'codex'], deps())).toBe(1);
     expect(stdout).toContain('  claude   2.1.330             ! failed: network unreachable');
     expect(stdout).toContain('  codex    0.171.0             ✓ already latest');

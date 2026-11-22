@@ -1,8 +1,7 @@
 import { waitForOAuthCallback } from '../oauth/callbackServer.ts';
 import { createPkce, createState, decodeJwtPayload } from '../oauth/pkce.ts';
-import { severityForPercent } from '../render.ts';
-import { AuthExpiredError, type Limit, type LimitKind, type Provider, type UsageSnapshot } from '../types.ts';
-import { asArray, asDate, asNumber, asRecord, asString } from './parsing.ts';
+import { AuthExpiredError, severityForPercent, type Limit, type LimitKind, type Provider, type UsageSnapshot } from '../types.ts';
+import { asArray, asDate, asNumber, asRecord, asString, windowKind, windowLabel } from './parsing.ts';
 
 // OAuth parameters of the Codex CLI (verified against its binary).
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -26,18 +25,8 @@ export interface ChatGptCredentials {
   expiresAt: number;
 }
 
-export function windowLabel(seconds: number): string {
-  if (seconds === 604_800) return 'Week';
-  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`;
-  if (seconds % 3_600 === 0) return `${seconds / 3_600}h`;
-  return `${Math.round(seconds / 60)}m`;
-}
-
 /** Named extra limits gate one feature or model; plain windows are the short or the weekly allowance. */
-function windowKind(seconds: number, prefix?: string): LimitKind {
-  if (prefix) return 'model';
-  return seconds >= 604_800 ? 'weekly' : 'session';
-}
+const limitKind = (seconds: number, prefix?: string): LimitKind => (prefix ? 'model' : windowKind(seconds));
 
 function windowLimit(window: unknown, prefix?: string): { limit: Limit; seconds: number } | null {
   const record = asRecord(window);
@@ -49,7 +38,7 @@ function windowLimit(window: unknown, prefix?: string): { limit: Limit; seconds:
   const resetsAt =
     resetAt !== null ? asDate(resetAt * 1000) : resetAfter !== null ? asDate(Date.now() + resetAfter * 1000) : null;
   const label = prefix ? `${prefix} ${windowLabel(seconds)}` : windowLabel(seconds);
-  return { limit: { label, kind: windowKind(seconds, prefix), percent, severity: severityForPercent(percent), resetsAt }, seconds };
+  return { limit: { label, kind: limitKind(seconds, prefix), percent, severity: severityForPercent(percent), resetsAt }, seconds };
 }
 
 /** Primary and secondary windows, shorter window first ("5h" before "Week"). */

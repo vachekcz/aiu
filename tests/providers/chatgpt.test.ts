@@ -1,37 +1,17 @@
-import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chatgptProvider, parseChatGptUsage, windowLabel } from '../../src/providers/chatgpt.ts';
+import { describe, expect, it, vi } from 'vitest';
+import { chatgptProvider, parseChatGptUsage } from '../../src/providers/chatgpt.ts';
 import { AuthExpiredError, type LoginIO } from '../../src/types.ts';
-import { httpGet } from '../helpers/http.ts';
+import { stubFetch } from '../helpers/fetch.ts';
+import { loadFixture } from '../helpers/fixtures.ts';
+import { httpGet, jsonResponse } from '../helpers/http.ts';
 
-const fixture = JSON.parse(readFileSync(new URL('../fixtures/chatgpt-usage.json', import.meta.url), 'utf8'));
+const fixture = loadFixture('chatgpt-usage');
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 
 const jwt = (payload: Record<string, unknown>) =>
   ['h', Buffer.from(JSON.stringify(payload)).toString('base64url'), 's'].join('.');
 
-const jsonResponse = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-
-let fetchMock: ReturnType<typeof vi.fn>;
-
-beforeEach(() => {
-  fetchMock = vi.fn();
-  vi.stubGlobal('fetch', fetchMock);
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-describe('windowLabel', () => {
-  it('names common window lengths', () => {
-    expect(windowLabel(18000)).toBe('5h');
-    expect(windowLabel(604800)).toBe('Week');
-    expect(windowLabel(86400)).toBe('1d');
-    expect(windowLabel(7200)).toBe('2h');
-  });
-});
+const fetchMock = stubFetch();
 
 describe('parseChatGptUsage', () => {
   it('maps windows and per-model availability', () => {

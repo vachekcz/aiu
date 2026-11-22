@@ -1,29 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { recommend } from '../src/recommend.ts';
-import type { AccountUsage, Limit, ProviderId } from '../src/types.ts';
+import { freesUpAt, isSessionLow, isUsedUp, latestReset, percentLeft, recommend, SESSION_ROOM, unknownUsedUp } from '../src/recommend.ts';
+import type { Limit } from '../src/types.ts';
+import { usageBuilders } from './helpers/usage.ts';
 
 const now = new Date('2026-11-18T22:00:00Z');
-const inHours = (hours: number) => new Date(now.getTime() + hours * 3_600_000);
-
-const limit = (kind: Limit['kind'], label: string, percent: number | null, resetsInHours: number | null): Limit => ({
-  label,
-  kind,
-  percent,
-  severity: 'normal',
-  resetsAt: resetsInHours === null ? null : inHours(resetsInHours),
-});
-
-const ok = (provider: ProviderId, label: string, limits: Limit[]): AccountUsage => ({
-  account: { provider, label },
-  status: 'ok',
-  limits,
-});
+const { at: inHours, limit, ok } = usageBuilders(now);
 
 const claude = (label: string, session: number, weekly: number, weeklyResetsIn: number, fable = 100) =>
   ok('claude', label, [
-    limit('session', '5h', session, 3),
-    limit('weekly', 'Week (all)', weekly, weeklyResetsIn),
-    limit('model', 'Week (Fable)', fable, weeklyResetsIn),
+    limit('5h', 'session', session, 3),
+    limit('Week (all)', 'weekly', weekly, weeklyResetsIn),
+    limit('Week (Fable)', 'model', fable, weeklyResetsIn),
   ]);
 
 describe('recommend', () => {
@@ -48,7 +35,7 @@ describe('recommend', () => {
   });
 
   it('puts an unknown weekly reset after every known one', () => {
-    const advice = recommend([ok('claude', 'unknown', [limit('weekly', 'Week (all)', 10, null)]), claude('known', 0, 10, 150)], now);
+    const advice = recommend([ok('claude', 'unknown', [limit('Week (all)', 'weekly', 10, null)]), claude('known', 0, 10, 150)], now);
     expect(advice.providers[0]?.accountId).toBe('claude/known');
   });
 
@@ -70,8 +57,8 @@ describe('recommend', () => {
   it('says when nothing is usable and which account frees up first', () => {
     const advice = recommend(
       [
-        ok('chatgpt', 'a', [limit('weekly', 'Week', 100, 71)]),
-        ok('chatgpt', 'b', [limit('weekly', 'Week', 100, 30)]),
+        ok('chatgpt', 'a', [limit('Week', 'weekly', 100, 71)]),
+        ok('chatgpt', 'b', [limit('Week', 'weekly', 100, 30)]),
       ],
       now,
     );
@@ -82,7 +69,7 @@ describe('recommend', () => {
 
   it('waits for the later of two exhausted limits on the same account', () => {
     const advice = recommend(
-      [ok('claude', 'x', [limit('session', '5h', 100, 2), limit('weekly', 'Week (all)', 100, 40)])],
+      [ok('claude', 'x', [limit('5h', 'session', 100, 2), limit('Week (all)', 'weekly', 100, 40)])],
       now,
     );
     expect(advice.providers[0]).toMatchObject({ accountId: null, availableAt: inHours(40) });
@@ -93,7 +80,7 @@ describe('recommend', () => {
       [
         claude('one', 0, 0, 100),
         { account: { provider: 'claude', label: 'broken' }, status: 'error', message: 'Login expired' },
-        ok('chatgpt', 'pro', [limit('weekly', 'Week', 20, 50)]),
+        ok('chatgpt', 'pro', [limit('Week', 'weekly', 20, 50)]),
       ],
       now,
     );
@@ -118,9 +105,9 @@ describe('recommend', () => {
   });
 
   it('treats a blocked model without percent as used up and skips models available everywhere', () => {
-    const blocked: Limit = { ...limit('model', 'gpt-6-astra', null, 71), detail: 'blocked' };
-    const available: Limit = { ...limit('model', 'gpt-6', null, null), detail: 'available' };
-    const advice = recommend([ok('chatgpt', 'pro', [limit('weekly', 'Week', 100, 71), blocked, available])], now);
+    const blocked: Limit = { ...limit('gpt-6-astra', 'model', null, 71), detail: 'blocked' };
+    const available: Limit = { ...limit('gpt-6', 'model', null, null), detail: 'available' };
+    const advice = recommend([ok('chatgpt', 'pro', [limit('Week', 'weekly', 100, 71), blocked, available])], now);
     expect(advice.models).toEqual([
       { provider: 'chatgpt', label: 'gpt-6-astra', availableOn: [], availableAt: inHours(71), availableAccountId: 'chatgpt/pro' },
     ]);
@@ -128,7 +115,7 @@ describe('recommend', () => {
 
   it('ranks by the weekly allowance even when another account has only a 5h window', () => {
     const advice = recommend(
-      [ok('claude', 'no-weekly', [limit('session', '5h', 10, 3)]), claude('weekly-urgent', 0, 20, 5)],
+      [ok('claude', 'no-weekly', [limit('5h', 'session', 10, 3)]), claude('weekly-urgent', 0, 20, 5)],
       now,
     );
     expect(advice.providers[0]?.accountId).toBe('claude/weekly-urgent');
@@ -136,7 +123,7 @@ describe('recommend', () => {
 
   it('never recommends an account without any 5h or weekly data', () => {
     const advice = recommend(
-      [ok('claude', 'unknown-kinds', [limit(undefined, 'five_hour', 0, 3)]), ok('claude', 'empty', []), claude('real', 95, 50, 50)],
+      [ok('claude', 'unknown-kinds', [limit('five_hour', undefined, 0, 3)]), ok('claude', 'empty', []), claude('real', 95, 50, 50)],
       now,
     );
     expect(advice.providers[0]?.accountId).toBe('claude/real');
@@ -149,16 +136,16 @@ describe('recommend', () => {
 
   it('does not name a first account when another one frees up at an unknown time', () => {
     const advice = recommend(
-      [ok('claude', 'known', [limit('weekly', 'Week (all)', 100, 30)]), ok('claude', 'unknown', [limit('weekly', 'Week (all)', 100, null)])],
+      [ok('claude', 'known', [limit('Week (all)', 'weekly', 100, 30)]), ok('claude', 'unknown', [limit('Week (all)', 'weekly', 100, null)])],
       now,
     );
     expect(advice.providers).toEqual([{ provider: 'claude', accountId: null, availableAt: null }]);
   });
 
   it('does not name a first account for a model when one of its resets is unknown', () => {
-    const blocked = (resetsIn: number | null): Limit => ({ ...limit('model', 'gpt-x', null, resetsIn), detail: 'blocked' });
+    const blocked = (resetsIn: number | null): Limit => ({ ...limit('gpt-x', 'model', null, resetsIn), detail: 'blocked' });
     const advice = recommend(
-      [ok('chatgpt', 'a', [limit('weekly', 'Week', 0, 50), blocked(10)]), ok('chatgpt', 'b', [limit('weekly', 'Week', 0, 50), blocked(null)])],
+      [ok('chatgpt', 'a', [limit('Week', 'weekly', 0, 50), blocked(10)]), ok('chatgpt', 'b', [limit('Week', 'weekly', 0, 50), blocked(null)])],
       now,
     );
     expect(advice.models).toEqual([{ provider: 'chatgpt', label: 'gpt-x', availableOn: [], availableAt: null }]);
@@ -168,9 +155,9 @@ describe('recommend', () => {
     const advice = recommend(
       [
         ok('claude', 'odd', [
-          limit('session', '5h', 0, 3),
-          limit('weekly', 'Week (all)', 0, 5),
-          limit(undefined, 'monthly_x', 100, 100),
+          limit('5h', 'session', 0, 3),
+          limit('Week (all)', 'weekly', 0, 5),
+          limit('monthly_x', undefined, 100, 100),
         ]),
         claude('normal', 0, 50, 100),
       ],
@@ -190,7 +177,7 @@ describe('plan', () => {
       [
         claude('late', 33, 74, 106, 60), // Fable 40 % left
         claude('first', 3, 57, 5), // Fable used up
-        ok('claude', 'blocked', [limit('session', '5h', 100, 2), limit('weekly', 'Week (all)', 73, 33), limit('model', 'Week (Fable)', 100, 33)]),
+        ok('claude', 'blocked', [limit('5h', 'session', 100, 2), limit('Week (all)', 'weekly', 73, 33), limit('Week (Fable)', 'model', 100, 33)]),
       ],
       now,
     );
@@ -213,8 +200,8 @@ describe('plan', () => {
   it('puts an unknown weekly reset last and skips a weekly limit without percent', () => {
     const { plan } = recommend(
       [
-        ok('claude', 'unknown', [limit('weekly', 'Week (all)', 10, null)]),
-        ok('claude', 'no-percent', [limit('weekly', 'Week (all)', null, 5)]),
+        ok('claude', 'unknown', [limit('Week (all)', 'weekly', 10, null)]),
+        ok('claude', 'no-percent', [limit('Week (all)', 'weekly', null, 5)]),
         claude('known', 0, 10, 150),
       ],
       now,
@@ -224,7 +211,7 @@ describe('plan', () => {
 
   it('lists every model limit with room', () => {
     const { plan } = recommend(
-      [ok('claude', 'x', [limit('weekly', 'Week (all)', 0, 50), limit('model', 'Week (Fable)', 0, 50), limit('model', 'Week (Opus)', 10, 50)])],
+      [ok('claude', 'x', [limit('Week (all)', 'weekly', 0, 50), limit('Week (Fable)', 'model', 0, 50), limit('Week (Opus)', 'model', 10, 50)])],
       now,
     );
     expect(plan[0]?.steps[0]?.premium).toEqual(['Fable', 'Opus']);
@@ -232,13 +219,13 @@ describe('plan', () => {
 
   it('names a model once and only when none of its windows is used up', () => {
     const pro = (fiveHour: number, week: number) =>
-      ok('chatgpt', 'pro', [limit('weekly', 'Week', 40, 50), limit('model', 'GPT-6 Pro 5h', fiveHour, 2), limit('model', 'GPT-6 Pro Week', week, 50)]);
+      ok('chatgpt', 'pro', [limit('Week', 'weekly', 40, 50), limit('GPT-6 Pro 5h', 'model', fiveHour, 2), limit('GPT-6 Pro Week', 'model', week, 50)]);
     expect(recommend([pro(100, 30)], now).plan[0]?.steps[0]?.premium).toEqual([]);
     expect(recommend([pro(10, 30)], now).plan[0]?.steps[0]?.premium).toEqual(['GPT-6 Pro']);
   });
 
   it('keeps 5h-blocked accounts in the plan while the recommendation finds nothing usable', () => {
-    const advice = recommend([ok('claude', 'x', [limit('session', '5h', 100, 2), limit('weekly', 'Week (all)', 50, 50)])], now);
+    const advice = recommend([ok('claude', 'x', [limit('5h', 'session', 100, 2), limit('Week (all)', 'weekly', 50, 50)])], now);
     expect(advice.providers[0]?.accountId).toBeNull();
     expect(advice.plan[0]?.steps.map((step) => step.accountId)).toEqual(['claude/x']);
   });
@@ -252,5 +239,56 @@ describe('plan', () => {
   it('starts with the recommended account when it has room', () => {
     const advice = recommend([claude('a', 0, 40, 10), claude('b', 0, 95, 2), claude('c', 50, 0, 100)], now);
     expect(advice.plan[0]?.steps[0]?.accountId).toBe(advice.providers[0]?.accountId);
+  });
+});
+
+describe('shared limit rules', () => {
+  const unknown = (label: string, percent: number, hours: number | null) => limit(label, undefined, percent, hours);
+
+  it('percentLeft is what remains of a known limit, never negative', () => {
+    expect(percentLeft(limit('Week', 'weekly', 30, 5))).toBe(70);
+    expect(percentLeft(limit('Week', 'weekly', 120, 5))).toBe(0);
+    expect(percentLeft(limit('Week', 'weekly', null, 5))).toBeUndefined();
+    expect(percentLeft(undefined)).toBeUndefined();
+  });
+
+  it('isUsedUp covers a full limit and a blocked one without a percentage', () => {
+    expect(isUsedUp(limit('5h', 'session', 99.9, 1))).toBe(false);
+    expect(isUsedUp(limit('5h', 'session', 100, 1))).toBe(true);
+    expect(isUsedUp({ ...limit('astra', 'model', null, 1), detail: 'blocked' })).toBe(true);
+    expect(isUsedUp({ ...limit('astra', 'model', null, 1), detail: 'available' })).toBe(false);
+  });
+
+  it('isSessionLow starts right under SESSION_ROOM % left', () => {
+    expect(isSessionLow(limit('5h', 'session', 100 - SESSION_ROOM, 1))).toBe(false);
+    expect(isSessionLow(limit('5h', 'session', 100 - SESSION_ROOM + 0.1, 1))).toBe(true);
+    expect(isSessionLow(limit('5h', 'session', 100, 1))).toBe(true);
+  });
+
+  it('isSessionLow treats a missing 5h window or percentage as room to work', () => {
+    expect(isSessionLow(undefined)).toBe(false);
+    expect(isSessionLow(limit('5h', 'session', null, 1))).toBe(false);
+  });
+
+  it('unknownUsedUp lists only used-up limits without a kind', () => {
+    const usage = ok('grok', 'main', [limit('5h', 'session', 100, 1), unknown('Queries', 100, 2), unknown('Images', 40, 2)]);
+    expect(unknownUsedUp(usage).map((entry) => entry.label)).toEqual(['Queries']);
+  });
+
+  it('latestReset is the last of the resets, or null when one is unknown or there are none', () => {
+    expect(latestReset([limit('5h', 'session', 100, 2), limit('Week', 'weekly', 100, 30)])).toEqual(inHours(30));
+    expect(latestReset([limit('5h', 'session', 100, 2), limit('Week', 'weekly', 100, null)])).toBeNull();
+    expect(latestReset([])).toBeNull();
+  });
+
+  it('freesUpAt waits for every used-up gating limit and ignores models and limits with room', () => {
+    const usage = ok('claude', 'work', [
+      limit('5h', 'session', 100, 2),
+      limit('Week (all)', 'weekly', 100, 30),
+      limit('Week (Fable)', 'model', 100, 90),
+    ]);
+    const roomy = ok('claude', 'free', [limit('5h', 'session', 20, 2), limit('Week (all)', 'weekly', 20, 30)]);
+    expect(freesUpAt(usage)).toEqual(inHours(30));
+    expect(freesUpAt(roomy)).toBeNull();
   });
 });

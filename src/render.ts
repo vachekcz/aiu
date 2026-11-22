@@ -1,8 +1,20 @@
-import { byDeadline, findKind, freesUpAt, isUsedUp, modelName, recommend, SESSION_ROOM, type ProviderAdvice } from './recommend.ts';
+import {
+  byDeadline,
+  findKind,
+  freesUpAt,
+  HOUR_MS,
+  isSessionLow,
+  isUsedUp,
+  latestReset,
+  modelName,
+  percentLeft,
+  recommend,
+  unknownUsedUp,
+  type ProviderAdvice,
+} from './recommend.ts';
 import type { ToolStatus, UpdateOutcome } from './tools.ts';
 import { accountId, type AccountUsage, type Limit, type ProviderId, type Severity } from './types.ts';
 
-const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
 const SESSION_BAR_CELLS = 5;
 const WEEK_BAR_CELLS = 10;
@@ -64,12 +76,6 @@ const SEVERITY_COLOR: Record<Severity, Style> = {
 };
 
 const PROVIDER_NAMES: Record<ProviderId, string> = { claude: 'Claude', chatgpt: 'ChatGPT', grok: 'Grok' };
-
-export function severityForPercent(percent: number): Severity {
-  if (percent >= 80) return 'critical';
-  if (percent >= 50) return 'warning';
-  return 'normal';
-}
 
 /** Time left until the reset, e.g. "2d 3h", "3h 9m", "19m". */
 export function formatCountdown(resetsAt: Date | null, now: Date): string {
@@ -189,12 +195,6 @@ function limitCell(limit: Limit | undefined, cells: number, dimmed: boolean): Ce
   return [segment(`${bar(limit.percent, cells)} ${percentText(limit.percent)}`, style)];
 }
 
-/** The latest reset of these limits, or null when any of them is unknown. */
-function latestReset(limits: Limit[]): Date | null {
-  if (limits.length === 0 || limits.some((limit) => limit.resetsAt === null)) return null;
-  return limits.reduce<Date | null>((latest, limit) => (!latest || limit.resetsAt! > latest ? limit.resetsAt : latest), null);
-}
-
 /**
  * A model column: its fullest limit, or "✗" when one is used up. A used-up model that comes back at
  * another time than the row's weekly reset (ChatGPT's "GPT-6 Pro 5h", "gpt-6-astra") shows when, and one
@@ -221,8 +221,8 @@ const deadline = (state: AccountState): Pick<Limit, 'resetsAt'> => ({ resetsAt: 
 /** When a waiting account can be used again: the reset of its full or nearly full 5h window, or of a used-up limit of unknown kind. */
 function waitsUntil(state: AccountState): Date | null {
   const { session, usage } = state;
-  const sessionWaits = session !== undefined && (isUsedUp(session) || (session.percent !== null && 100 - session.percent < SESSION_ROOM));
-  return latestReset([...(sessionWaits ? [session] : []), ...usage.limits.filter((limit) => !limit.kind && isUsedUp(limit))]);
+  const sessionWaits = session !== undefined && (isUsedUp(session) || isSessionLow(session));
+  return latestReset([...(sessionWaits ? [session] : []), ...unknownUsedUp(usage)]);
 }
 
 interface AccountState {
@@ -232,19 +232,21 @@ interface AccountState {
   weeklyUsedUp: boolean;
   /** 5h window used up, under SESSION_ROOM % left, or a used-up limit of unknown kind. */
   paused: boolean;
+  /** Reset of a used-up 5h window: until then nothing of the weekly limit can be used. */
+  pausedUntil: Date | null;
 }
 
 function stateOf(usage: OkUsage): AccountState {
   const session = findKind(usage, 'session');
   const weekly = findKind(usage, 'weekly');
-  const sessionLow = session !== undefined && session.percent !== null && 100 - session.percent < SESSION_ROOM;
-  const unknownUsedUp = usage.limits.some((limit) => !limit.kind && isUsedUp(limit));
+  const sessionUsedUp = session !== undefined && isUsedUp(session);
   return {
     usage,
     ...(session ? { session } : {}),
     ...(weekly ? { weekly } : {}),
     weeklyUsedUp: weekly !== undefined && isUsedUp(weekly),
-    paused: (session !== undefined && isUsedUp(session)) || sessionLow || unknownUsedUp,
+    paused: sessionUsedUp || isSessionLow(session) || unknownUsedUp(usage).length > 0,
+    pausedUntil: sessionUsedUp ? session.resetsAt : null,
   };
 }
 
@@ -257,15 +259,14 @@ function notesFor(state: AccountState, premium: string[], now: Date): Cell {
   }
   if (session && isUsedUp(session)) {
     notes.push([segment(session.resetsAt ? `${session.label} back ${inTime(session.resetsAt, now)}` : `${session.label} used up`, 'yellow')]);
-  } else if (session && session.percent !== null && 100 - session.percent < SESSION_ROOM) {
-    notes.push([segment(`${session.label} ${Math.floor(100 - session.percent)} % left`, 'yellow')]);
+  } else if (session && isSessionLow(session)) {
+    notes.push([segment(`${session.label} ${Math.floor(percentLeft(session) ?? 0)} % left`, 'yellow')]);
   }
-  for (const limit of usage.limits.filter((candidate) => !candidate.kind && isUsedUp(candidate))) {
+  for (const limit of unknownUsedUp(usage)) {
     notes.push([segment(`${limit.label} used up`, 'yellow')]);
   }
   if (weekly && weekly.percent !== null) {
-    const pausedUntil = session && isUsedUp(session) ? session.resetsAt : null;
-    const value = pace(weekly, pausedUntil, now);
+    const value = pace(weekly, state.pausedUntil, now);
     if (value !== null && value >= PACE_TIGHT) notes.push([segment(`needs ${value.toFixed(1)} %/h`, paceColor(value))]);
     if (!weekly.resetsAt) notes.push([segment('reset unknown', 'dim')]);
   }
@@ -274,7 +275,7 @@ function notesFor(state: AccountState, premium: string[], now: Date): Cell {
 }
 
 function dataRow(state: AccountState, extras: string[], recommended: boolean, premium: string[], now: Date): DataRow {
-  const { usage, session, weekly, weeklyUsedUp, paused } = state;
+  const { usage, session, weekly, weeklyUsedUp, paused, pausedUntil } = state;
   const glyph = recommended
     ? [segment('▶', 'boldGreen')]
     : weeklyUsedUp
@@ -282,7 +283,6 @@ function dataRow(state: AccountState, extras: string[], recommended: boolean, pr
       : paused
         ? [segment('‖', 'yellow')]
         : [segment(' ')];
-  const pausedUntil = session && isUsedUp(session) ? session.resetsAt : null;
   const burn = (): Cell => {
     if (weeklyUsedUp || !weekly || weekly.percent === null) return [segment('—', 'dim')];
     return [segment(percentText(Math.max(0, 100 - weekly.percent)), paceColor(pace(weekly, pausedUntil, now)))];

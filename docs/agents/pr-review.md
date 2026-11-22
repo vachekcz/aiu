@@ -142,7 +142,8 @@ below are the whole checklist.
 **Tests prove the change.** Every provider parser has a vitest test against a
 sanitised fixture in `tests/fixtures/`, including a missing-fields case. A
 change to the table or JSON output updates `tests/render.test.ts`. No test
-hits a real endpoint: provider tests stub `fetch` with `vi.stubGlobal`. Only
+hits a real endpoint: provider tests stub `fetch` with `stubFetch` from
+`tests/helpers/fetch.ts`. Only
 `tests/store/keychain.test.ts` touches the real Keychain, under the separate
 service `ai-usage-test`, and cleans up after itself.
 

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { colorMode, formatCountdown, renderJson, renderOverview, renderTools, renderUpdateOutcome, severityForPercent, TRUECOLOR_PALETTE } from '../src/render.ts';
+import { colorMode, formatCountdown, renderJson, renderOverview, renderTools, renderUpdateOutcome, TRUECOLOR_PALETTE } from '../src/render.ts';
 import type { ToolStatus } from '../src/tools.ts';
 import type { AccountUsage, Limit } from '../src/types.ts';
+import { usageBuilders } from './helpers/usage.ts';
 
 const now = new Date('2026-11-18T22:00:00Z');
 const minutes = (count: number) => new Date(now.getTime() + count * 60_000);
@@ -29,15 +30,6 @@ const usages: AccountUsage[] = [
     hint: 'aiu login grok --name main',
   },
 ];
-
-describe('severityForPercent', () => {
-  it('maps thresholds 50 and 80', () => {
-    expect(severityForPercent(49)).toBe('normal');
-    expect(severityForPercent(50)).toBe('warning');
-    expect(severityForPercent(79)).toBe('warning');
-    expect(severityForPercent(80)).toBe('critical');
-  });
-});
 
 
 describe('formatCountdown', () => {
@@ -135,38 +127,9 @@ describe('renderJson', () => {
 
 
 describe('renderOverview', () => {
-  const at = (hours: number) => new Date(now.getTime() + hours * 3_600_000);
-  const session = (percent: number, hours: number | null): Limit => ({
-    label: '5h',
-    kind: 'session',
-    percent,
-    resetsAt: hours === null ? null : at(hours),
-    severity: severityForPercent(percent),
-  });
-  const week = (percent: number, hours: number | null, label = 'Week (all)'): Limit => ({
-    label,
-    kind: 'weekly',
-    percent,
-    resetsAt: hours === null ? null : at(hours),
-    severity: severityForPercent(percent),
-  });
-  const fable = (percent: number, hours: number): Limit => ({
-    label: 'Week (Fable)',
-    kind: 'model',
-    percent,
-    resetsAt: at(hours),
-    severity: severityForPercent(percent),
-  });
-  const claude = (label: string, limits: Limit[]): AccountUsage => ({ account: { provider: 'claude', label }, status: 'ok', limits });
-  const chatgpt = (label: string, limits: Limit[]): AccountUsage => ({ account: { provider: 'chatgpt', label }, status: 'ok', limits });
-  const astra = (blocked: boolean, hours: number): Limit => ({
-    label: 'gpt-6-astra',
-    kind: 'model',
-    percent: null,
-    resetsAt: blocked ? at(hours) : null,
-    severity: blocked ? 'critical' : 'normal',
-    detail: blocked ? 'blocked' : 'available',
-  });
+  const { at, session, week, fable, astra, ok } = usageBuilders(now);
+  const claude = (label: string, limits: Limit[]) => ok('claude', label, limits);
+  const chatgpt = (label: string, limits: Limit[]) => ok('chatgpt', label, limits);
   const plain = (usages: AccountUsage[]) => renderOverview(usages, now, { color: 'none' });
   const RED = '\x1b[31m';
   const YELLOW = '\x1b[33m';
@@ -177,7 +140,7 @@ describe('renderOverview', () => {
       claude('dotidot', [session(3, 4.5), week(9, 163), fable(0, 163)]),
       claude('info', [session(0, null), week(79, 96), fable(100, 96)]),
       claude('pvachek', [session(20, 4.5), week(78, 22.25), fable(100, 22.25)]),
-      chatgpt('ja', [week(100, 24.5, 'Week'), astra(true, 24.5)]),
+      chatgpt('ja', [week(100, 24.5, 'Week'), astra('blocked', 24.5)]),
     ]);
     expect(output.split('\n')).toEqual([
       'Use now  which account to work on right now',
@@ -250,10 +213,10 @@ describe('renderOverview', () => {
   it('shows when a used-up model comes back when that differs from the weekly reset', () => {
     const pro5h: Limit = { label: 'GPT-6 Pro 5h', kind: 'model', percent: 100, resetsAt: at(2), severity: 'critical' };
     const pro: Limit = { label: 'GPT-6 Pro Week', kind: 'model', percent: 40, resetsAt: at(120), severity: 'normal' };
-    const output = plain([chatgpt('pro', [week(40, 120, 'Week'), pro5h, pro, astra(true, 5)]), claude('max', [week(10, 50), fable(100, 50)])]);
+    const output = plain([chatgpt('pro', [week(40, 120, 'Week'), pro5h, pro, astra('blocked', 5)]), claude('max', [week(10, 50), fable(100, 50)])]);
     expect(output).toMatch(/▶ pro .*✗ 2h 0m +✗ 5h 0m +5d 0h/);
     expect(output).toMatch(/max .*✗ used/);
-    const unknown = plain([chatgpt('x', [week(40, 120, 'Week'), { ...astra(true, 0), resetsAt: null }])]);
+    const unknown = plain([chatgpt('x', [week(40, 120, 'Week'), { ...astra('blocked', 0), resetsAt: null }])]);
     expect(unknown).toMatch(/x .*✗ unknown/);
   });
 
@@ -294,7 +257,7 @@ describe('renderOverview', () => {
       status: 'ok',
       limits: [{ label: '2h', kind: 'session', percent: null, resetsAt: null, severity: 'normal', detail: '15/20 left' }],
     };
-    const output = plain([grok, chatgpt('pro', [week(10, 30, 'Week'), astra(false, 0)])]);
+    const output = plain([grok, chatgpt('pro', [week(10, 30, 'Week'), astra('available', null)])]);
     expect(output).toContain('15/20 left');
     expect(output).toContain('available');
     expect(output).toMatch(/Grok +2h/);

@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   grokProvider,
   hasActiveSubscription,
@@ -8,11 +7,12 @@ import {
   readGrpcWebMessage,
 } from '../../src/providers/grok.ts';
 import { AuthExpiredError, BlockedError, type LoginIO } from '../../src/types.ts';
+import { stubFetch } from '../helpers/fetch.ts';
+import { loadFixture } from '../helpers/fixtures.ts';
+import { jsonResponse } from '../helpers/http.ts';
 
-const rateLimitsFixture = JSON.parse(readFileSync(new URL('../fixtures/grok-rate-limits.json', import.meta.url), 'utf8'));
-const subscriptionsFixture = JSON.parse(
-  readFileSync(new URL('../fixtures/grok-subscriptions.json', import.meta.url), 'utf8'),
-);
+const rateLimitsFixture = loadFixture('grok-rate-limits');
+const subscriptionsFixture = loadFixture('grok-subscriptions');
 const NOW = new Date('2026-11-19T12:00:00Z');
 const PERIOD_END = new Date('2026-11-24T08:00:00Z');
 const CREDENTIALS = { cookie: 'sso=abc; sso-rw=def', userAgent: 'Mozilla/5.0 Test' };
@@ -54,25 +54,10 @@ const grpcResponse = (bytes: number[], headers: Record<string, string> = {}) =>
     headers: { 'content-type': 'application/grpc-web+proto', ...headers },
   });
 
-const jsonResponse = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-
 const htmlResponse = (body: string, status: number) =>
   new Response(body, { status, headers: { 'content-type': 'text/html; charset=UTF-8' } });
 
-let fetchMock: ReturnType<typeof vi.fn>;
-
-beforeEach(() => {
-  fetchMock = vi.fn();
-  vi.stubGlobal('fetch', fetchMock);
-  vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(NOW);
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.useRealTimers();
-});
+const fetchMock = stubFetch({ now: NOW });
 
 describe('readGrpcWebMessage', () => {
   it('returns the first data frame and skips trailers', () => {
@@ -142,8 +127,13 @@ describe('parseGrokRateLimits', () => {
     expect(parseGrokRateLimits('nope')).toBeNull();
   });
 
+  it('treats a window of a week or longer as the weekly limit', () => {
+    expect(parseGrokRateLimits({ windowSizeSeconds: 604_800, remainingQueries: 5, totalQueries: 20 })).toMatchObject({ label: 'Week', kind: 'weekly' });
+    expect(parseGrokRateLimits({ windowSizeSeconds: 7200, remainingQueries: 5, totalQueries: 20 })).toMatchObject({ label: '2h', kind: 'session' });
+  });
+
   it('labels a missing window plainly', () => {
-    expect(parseGrokRateLimits({ remainingQueries: 5, totalQueries: 10 })?.label).toBe('Queries');
+    expect(parseGrokRateLimits({ remainingQueries: 5, totalQueries: 10 })).toMatchObject({ label: 'Queries', kind: 'session' });
   });
 });
 

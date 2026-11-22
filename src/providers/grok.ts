@@ -1,7 +1,5 @@
-import { severityForPercent } from '../render.ts';
-import { AuthExpiredError, BlockedError, type Limit, type Provider, type UsageSnapshot } from '../types.ts';
-import { windowLabel } from './chatgpt.ts';
-import { asArray, asDate, asNumber, asRecord, asString } from './parsing.ts';
+import { AuthExpiredError, BlockedError, severityForPercent, type Limit, type Provider, type UsageSnapshot } from '../types.ts';
+import { asArray, asDate, asNumber, asRecord, asString, windowKind, windowLabel } from './parsing.ts';
 
 // grok.com has no official usage API. These are the endpoints the grok.com web app itself calls;
 // paid plans share one weekly pool across Grok products, free accounts keep per-model query quotas.
@@ -147,7 +145,7 @@ export function parseGrokRateLimits(json: unknown): Limit | null {
   const percent = Math.min(100, Math.max(0, ((total - remaining) / total) * 100));
   return {
     label: seconds !== null && seconds > 0 ? windowLabel(seconds) : 'Queries',
-    kind: seconds !== null && seconds >= 604_800 ? 'weekly' : 'session',
+    kind: seconds !== null ? windowKind(seconds) : 'session',
     percent,
     severity: severityForPercent(percent),
     resetsAt: wait !== null && wait > 0 ? new Date(Date.now() + wait * 1000) : null,

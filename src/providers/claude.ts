@@ -1,6 +1,5 @@
 import { createPkce, createState } from '../oauth/pkce.ts';
-import { severityForPercent } from '../render.ts';
-import { AuthExpiredError, type Limit, type LimitKind, type Provider, type Severity, type UsageSnapshot } from '../types.ts';
+import { AuthExpiredError, severityForPercent, type Limit, type LimitKind, type Provider, type Severity, type UsageSnapshot } from '../types.ts';
 import { asArray, asDate, asNumber, asRecord, asString } from './parsing.ts';
 
 // OAuth parameters of Claude Code (verified against Claude Code 2.1.327).

@@ -9,35 +9,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderOverview } from '../src/render.ts';
 import type { ToolStatus } from '../src/tools.ts';
-import { severityForPercent, type AccountUsage, type Limit, type LimitKind, type ProviderId } from '../src/types.ts';
+import type { AccountUsage } from '../src/types.ts';
+import { usageBuilders } from '../tests/helpers/usage.ts';
 
 const NOW = new Date('2026-11-19T19:42:00Z');
-const at = (hours: number | null) => (hours === null ? null : new Date(NOW.getTime() + hours * 3_600_000));
 const DAY = 24;
-
-const limit = (label: string, kind: LimitKind, percent: number, hours: number | null): Limit => ({
-  label,
-  kind,
-  percent,
-  resetsAt: at(hours),
-  severity: severityForPercent(percent),
-});
-const session = (percent: number, hours: number | null) => limit('5h', 'session', percent, hours);
-const week = (percent: number, hours: number | null) => limit('Week (all)', 'weekly', percent, hours);
-const fable = (percent: number, hours: number | null) => limit('Week (Fable)', 'model', percent, hours);
-const chatgptWeek = (percent: number, hours: number | null) => limit('Week', 'weekly', percent, hours);
-const astra = (percent: number | 'blocked', hours: number | null): Limit =>
-  percent === 'blocked'
-    ? { label: 'gpt-6-astra', kind: 'model', percent: null, resetsAt: at(hours), severity: 'critical', detail: 'blocked' }
-    : limit('gpt-6-astra', 'model', percent, hours);
-
-const ok = (provider: ProviderId, label: string, limits: Limit[]): AccountUsage => ({ account: { provider, label }, status: 'ok', limits });
-const failed = (provider: ProviderId, label: string, message: string, hint?: string): AccountUsage => ({
-  account: { provider, label },
-  status: 'error',
-  message,
-  ...(hint ? { hint } : {}),
-});
+const { session, week, fable, astra, ok, failed } = usageBuilders(NOW);
+const chatgptWeek = (percent: number, hours: number | null) => week(percent, hours, 'Week');
 
 // Deadlines shared by the examples: one account resets within a day, one in 4 days, one in almost 7.
 const SOON = 22 + 18 / 60;

@@ -1,7 +1,8 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { accountId, type Account } from '../types.ts';
+import { writeJsonFile } from './jsonFile.ts';
 
 export const configDir = (): string =>
   process.env.AI_USAGE_CONFIG_DIR || join(homedir(), '.config', 'ai-usage');
@@ -17,12 +18,7 @@ export async function listAccounts(): Promise<Account[]> {
   }
 }
 
-async function saveAccounts(accounts: Account[]): Promise<void> {
-  await mkdir(configDir(), { recursive: true, mode: 0o700 });
-  const temporaryFile = `${accountsFile()}.${process.pid}.tmp`;
-  await writeFile(temporaryFile, `${JSON.stringify(accounts, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporaryFile, accountsFile());
-}
+const saveAccounts = (accounts: Account[]): Promise<void> => writeJsonFile(accountsFile(), accounts);
 
 export async function upsertAccount(account: Account): Promise<void> {
   const accounts = await listAccounts();

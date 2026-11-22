@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { configDir } from './store/accounts.ts';
+import { writeJsonFile } from './store/jsonFile.ts';
 
 /** The CLI tools that belong to the subscriptions, in display order. */
 export const TOOL_IDS = ['claude', 'codex', 'grok'] as const;
@@ -128,10 +129,7 @@ async function readCache(deps: ToolDeps): Promise<Cache> {
 
 async function writeCache(deps: ToolDeps, cache: Cache): Promise<void> {
   try {
-    await mkdir(deps.cacheDir(), { recursive: true, mode: 0o700 });
-    const temporaryFile = `${cacheFile(deps)}.${process.pid}.tmp`;
-    await writeFile(temporaryFile, `${JSON.stringify(cache, null, 2)}\n`, { mode: 0o600 });
-    await rename(temporaryFile, cacheFile(deps));
+    await writeJsonFile(cacheFile(deps), cache);
   } catch {
     // Without the cache the next run simply checks again.
   }

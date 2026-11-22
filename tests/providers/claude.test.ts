@@ -1,28 +1,15 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { buildClaudeAuthorizeUrl, claudeProvider, parseClaudeUsage } from '../../src/providers/claude.ts';
 import { AuthExpiredError, type LoginIO } from '../../src/types.ts';
+import { stubFetch } from '../helpers/fetch.ts';
+import { loadFixture } from '../helpers/fixtures.ts';
+import { jsonResponse } from '../helpers/http.ts';
 
-const fixture = JSON.parse(readFileSync(new URL('../fixtures/claude-usage.json', import.meta.url), 'utf8'));
+const fixture = loadFixture('claude-usage');
 const NOW = new Date('2026-11-18T22:00:00Z');
 
-const jsonResponse = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-
-let fetchMock: ReturnType<typeof vi.fn>;
-
-beforeEach(() => {
-  fetchMock = vi.fn();
-  vi.stubGlobal('fetch', fetchMock);
-  vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(NOW);
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.useRealTimers();
-});
+const fetchMock = stubFetch({ now: NOW });
 
 describe('parseClaudeUsage', () => {
   it('maps the limits array to labelled limits', () => {

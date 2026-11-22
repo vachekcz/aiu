@@ -1,5 +1,4 @@
-import { severityForPercent } from '../render.ts';
-import { AuthExpiredError, BlockedError, type Limit, type Provider, type UsageSnapshot } from '../types.ts';
+import { AuthExpiredError, BlockedError, severityForPercent, type Limit, type Provider, type UsageSnapshot } from '../types.ts';
 import { windowLabel } from './chatgpt.ts';
 import { asArray, asDate, asNumber, asRecord, asString } from './parsing.ts';
 

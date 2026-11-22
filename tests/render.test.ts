@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { colorMode, formatCountdown, renderJson, renderOverview, renderTools, renderUpdateOutcome, severityForPercent, TRUECOLOR_PALETTE } from '../src/render.ts';
+import { colorMode, formatCountdown, renderJson, renderOverview, renderTools, renderUpdateOutcome, TRUECOLOR_PALETTE } from '../src/render.ts';
 import type { ToolStatus } from '../src/tools.ts';
-import type { AccountUsage, Limit } from '../src/types.ts';
+import { severityForPercent, type AccountUsage, type Limit } from '../src/types.ts';
 
 const now = new Date('2026-11-18T22:00:00Z');
 const minutes = (count: number) => new Date(now.getTime() + count * 60_000);
@@ -29,15 +29,6 @@ const usages: AccountUsage[] = [
     hint: 'aiu login grok --name main',
   },
 ];
-
-describe('severityForPercent', () => {
-  it('maps thresholds 50 and 80', () => {
-    expect(severityForPercent(49)).toBe('normal');
-    expect(severityForPercent(50)).toBe('warning');
-    expect(severityForPercent(79)).toBe('warning');
-    expect(severityForPercent(80)).toBe('critical');
-  });
-});
 
 
 describe('formatCountdown', () => {

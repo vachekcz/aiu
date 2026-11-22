@@ -65,12 +65,6 @@ const SEVERITY_COLOR: Record<Severity, Style> = {
 
 const PROVIDER_NAMES: Record<ProviderId, string> = { claude: 'Claude', chatgpt: 'ChatGPT', grok: 'Grok' };
 
-export function severityForPercent(percent: number): Severity {
-  if (percent >= 80) return 'critical';
-  if (percent >= 50) return 'warning';
-  return 'normal';
-}
-
 /** Time left until the reset, e.g. "2d 3h", "3h 9m", "19m". */
 export function formatCountdown(resetsAt: Date | null, now: Date): string {
   if (!resetsAt) return '';

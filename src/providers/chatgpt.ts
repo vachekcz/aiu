@@ -1,7 +1,6 @@
 import { waitForOAuthCallback } from '../oauth/callbackServer.ts';
 import { createPkce, createState, decodeJwtPayload } from '../oauth/pkce.ts';
-import { severityForPercent } from '../render.ts';
-import { AuthExpiredError, type Limit, type LimitKind, type Provider, type UsageSnapshot } from '../types.ts';
+import { AuthExpiredError, severityForPercent, type Limit, type LimitKind, type Provider, type UsageSnapshot } from '../types.ts';
 import { asArray, asDate, asNumber, asRecord, asString } from './parsing.ts';
 
 // OAuth parameters of the Codex CLI (verified against its binary).

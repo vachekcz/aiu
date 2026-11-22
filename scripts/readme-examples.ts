@@ -7,9 +7,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { renderOverview, severityForPercent } from '../src/render.ts';
+import { renderOverview } from '../src/render.ts';
 import type { ToolStatus } from '../src/tools.ts';
-import type { AccountUsage, Limit, LimitKind, ProviderId } from '../src/types.ts';
+import { severityForPercent, type AccountUsage, type Limit, type LimitKind, type ProviderId } from '../src/types.ts';
 
 const NOW = new Date('2026-11-19T19:42:00Z');
 const at = (hours: number | null) => (hours === null ? null : new Date(NOW.getTime() + hours * 3_600_000));

@@ -2,6 +2,13 @@ export type ProviderId = 'claude' | 'chatgpt' | 'grok';
 
 export type Severity = 'normal' | 'warning' | 'critical';
 
+/** How close a limit is to being used up; providers set it, the renderer only colours by it. */
+export function severityForPercent(percent: number): Severity {
+  if (percent >= 80) return 'critical';
+  if (percent >= 50) return 'warning';
+  return 'normal';
+}
+
 /**
  * What a limit gates: the short rolling window (Claude 5h), the weekly allowance, or one model only.
  * The recommendation needs it; anything else stays unset.

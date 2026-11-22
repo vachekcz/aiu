@@ -6,9 +6,10 @@ import { parseArgs } from 'node:util';
 import { collectUsage, lockName } from './collect.ts';
 import { withFileLock } from './lock.ts';
 import { providers as defaultProviders } from './providers/index.ts';
-import { colorMode, renderJson, renderOverview, type ColorMode } from './render.ts';
+import { colorMode, renderJson, renderOverview, renderTools, renderUpdateOutcome, type ColorMode } from './render.ts';
 import { listAccounts, removeAccount, upsertAccount } from './store/accounts.ts';
 import { deleteCredentials, loadCredentials, saveCredentials } from './store/credentials.ts';
+import { defaultToolDeps, inspectTools, resolveToolId, TOOL_IDS, updateTool, type ToolDeps, type ToolId } from './tools.ts';
 import { accountId, type Account, type LoginIO, type Provider, type ProviderId } from './types.ts';
 
 // Only providers that are implemented.
@@ -19,13 +20,14 @@ const FETCH_TIMEOUT_MS = 10_000;
 const REFRESH_TIMEOUT_MS = 30_000;
 
 const USAGE = `Usage:
-  aiu                                        show usage of all accounts
+  aiu                                        show usage of all accounts and the CLI tool versions
   aiu --json                                 same, as JSON
   aiu login <${SUPPORTED_PROVIDERS}> [--name <label>]
                                              add or re-login an account; the label
                                              defaults to the login e-mail (not for grok)
   aiu accounts                               list configured accounts
-  aiu remove <provider>/<label>              remove an account and its stored login`;
+  aiu remove <provider>/<label>              remove an account and its stored login
+  aiu update [${TOOL_IDS.join('|')}]...          update the CLI tools (all installed ones by default)`;
 
 export interface CliDeps {
   providers: Partial<Record<ProviderId, Provider<unknown>>>;
@@ -41,6 +43,7 @@ export interface CliDeps {
   now: () => Date;
   color: ColorMode;
   lock: typeof withFileLock;
+  tools: ToolDeps;
 }
 
 const terminalIO: LoginIO = {
@@ -87,16 +90,21 @@ const defaultDeps = (): CliDeps => ({
   now: () => new Date(),
   color: colorMode(process.stdout, process.env),
   lock: withFileLock,
+  tools: defaultToolDeps(),
 });
 
 async function showUsage(deps: CliDeps, json: boolean): Promise<number> {
+  // Started first, so the version checks run while the usage is collected. They never fail the command.
+  const toolsPromise = inspectTools(deps.tools).catch(() => []);
   const accounts = await deps.listAccounts();
   if (accounts.length === 0 && json) {
-    deps.out(renderJson([], deps.now()));
+    deps.out(renderJson([], deps.now(), await toolsPromise));
     return 0;
   }
   if (accounts.length === 0) {
     deps.out(`No accounts yet. Add one with: aiu login <${SUPPORTED_PROVIDERS}> [--name <label>]`);
+    const toolsSection = renderTools(await toolsPromise, { color: deps.color });
+    if (toolsSection) deps.out(`\n${toolsSection}`);
     return 0;
   }
   const usages = await collectUsage(accounts, {
@@ -108,13 +116,37 @@ async function showUsage(deps: CliDeps, json: boolean): Promise<number> {
     refreshTimeoutMs: REFRESH_TIMEOUT_MS,
     lock: deps.lock,
   });
+  const tools = await toolsPromise;
   const now = deps.now();
   if (json) {
-    deps.out(renderJson(usages, now));
+    deps.out(renderJson(usages, now, tools));
     return 0;
   }
-  deps.out(renderOverview(usages, now, { color: deps.color }));
+  deps.out(renderOverview(usages, now, { color: deps.color, tools }));
   return 0;
+}
+
+/** Updates the named tools, or every installed one, one after another with each tool's own `update`. */
+async function updateCommand(deps: CliDeps, names: string[]): Promise<number> {
+  const unknown = names.find((name) => resolveToolId(name) === undefined);
+  if (unknown !== undefined) {
+    deps.err(`Unknown tool: ${unknown}. Use one of: ${TOOL_IDS.join(', ')}`);
+    return 2;
+  }
+  const named = new Set(names.map((name) => resolveToolId(name) as ToolId));
+  const ids = TOOL_IDS.filter((id) => named.size === 0 || named.has(id));
+  let shown = 0;
+  let failed = false;
+  for (const id of ids) {
+    const outcome = await updateTool(id, deps.tools);
+    // Without names every installed tool is meant, so a missing one is not worth a line.
+    if (outcome.status === 'missing' && named.size === 0) continue;
+    if (outcome.status === 'missing' || outcome.status === 'failed') failed = true;
+    deps.out(renderUpdateOutcome(outcome, { color: deps.color }));
+    shown += 1;
+  }
+  if (shown === 0) deps.out('No tools installed.');
+  return failed ? 1 : 0;
 }
 
 /**
@@ -228,6 +260,14 @@ export async function main(argv: string[], overrides: Partial<CliDeps> = {}): Pr
   }
 
   const [command, argument, ...extra] = positionals;
+  if (command === 'update') {
+    try {
+      return await updateCommand(deps, argument === undefined ? [] : [argument, ...extra]);
+    } catch (error) {
+      deps.err(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
+  }
   if (extra.length > 0) {
     deps.err(`Unexpected argument: ${extra.join(' ')}\n\n${USAGE}`);
     return 2;

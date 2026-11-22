@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { colorMode, formatCountdown, renderJson, renderOverview, severityForPercent, TRUECOLOR_PALETTE } from '../src/render.ts';
+import { colorMode, formatCountdown, renderJson, renderOverview, renderTools, renderUpdateOutcome, severityForPercent, TRUECOLOR_PALETTE } from '../src/render.ts';
+import type { ToolStatus } from '../src/tools.ts';
 import type { AccountUsage, Limit } from '../src/types.ts';
 
 const now = new Date('2026-11-18T22:00:00Z');
@@ -127,6 +128,7 @@ describe('renderJson', () => {
           },
         ],
       },
+      tools: [],
     });
   });
 });
@@ -321,5 +323,57 @@ describe('renderOverview', () => {
     expect(output).toContain('\x1b[38;2;95;207;138m█░░░░░░░░░  10 %');
     expect(output).toContain('\x1b[1m\x1b[38;2;95;207;138m▶');
     expect(output).not.toMatch(/\x1b\[3[1-7]m/);
+  });
+});
+
+describe('renderTools', () => {
+  const tools: ToolStatus[] = [
+    { id: 'claude', installed: '2.1.330', latest: '2.1.341', updateAvailable: true },
+    { id: 'codex', installed: '0.171.0', latest: null, updateAvailable: false },
+    { id: 'grok', installed: '1.0.89', latest: '1.0.89', updateAvailable: false },
+  ];
+  const current = tools.map((tool) => ({ ...tool, latest: tool.installed, updateAvailable: false }));
+
+  it('lists each tool with its installed version and what is newer', () => {
+    expect(renderTools(tools, { color: 'none' }).split('\n')).toEqual([
+      'Tools  installed CLI versions · update with: aiu update',
+      '    claude   2.1.330  → 2.1.341',
+      '    codex    0.171.0',
+      '    grok     1.0.89   ✓ latest',
+    ]);
+  });
+
+  it('drops the update hint when nothing is outdated', () => {
+    expect(renderTools(current, { color: 'none' }).split('\n')[0]).toBe('Tools  installed CLI versions');
+  });
+
+  it('is empty without tools', () => {
+    expect(renderTools([], { color: 'none' })).toBe('');
+  });
+
+  it('colours the newer version yellow, the up-to-date mark green and the command cyan', () => {
+    const colored = renderTools(tools, { color: 'basic' });
+    expect(colored).toContain('\x1b[1mTools\x1b[0m');
+    expect(colored).toContain('\x1b[33m→ 2.1.341\x1b[0m');
+    expect(colored).toContain('\x1b[32m✓ latest\x1b[0m');
+    expect(colored).toContain('\x1b[36maiu update\x1b[0m');
+  });
+
+  it('follows the accounts in the overview, after a blank line', () => {
+    const output = renderOverview(usages, now, { color: 'none', tools });
+    expect(output.split('\n').slice(-5)).toEqual(['', ...renderTools(tools, { color: 'none' }).split('\n')]);
+    expect(renderOverview(usages, now, { color: 'none', tools: [] })).toBe(renderOverview(usages, now, { color: 'none' }));
+  });
+
+  it('is part of the JSON output', () => {
+    expect(JSON.parse(renderJson(usages, now, tools)).tools).toEqual(tools);
+    expect(JSON.parse(renderJson(usages, now)).tools).toEqual([]);
+  });
+});
+
+describe('renderUpdateOutcome', () => {
+  it('colours a failure red and a success green', () => {
+    expect(renderUpdateOutcome({ id: 'grok', status: 'failed', version: '1.0.89', reason: 'boom' }, { color: 'basic' })).toContain('\x1b[31m! failed: boom\x1b[0m');
+    expect(renderUpdateOutcome({ id: 'grok', status: 'updated', from: '1.0.89', to: '1.0.92' }, { color: 'basic' })).toContain('\x1b[32m✓ updated\x1b[0m');
   });
 });

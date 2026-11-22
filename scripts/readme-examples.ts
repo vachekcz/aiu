@@ -8,6 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderOverview, severityForPercent } from '../src/render.ts';
+import type { ToolStatus } from '../src/tools.ts';
 import type { AccountUsage, Limit, LimitKind, ProviderId } from '../src/types.ts';
 
 const NOW = new Date('2026-11-19T19:42:00Z');
@@ -48,6 +49,7 @@ const CHATGPT = DAY + 37 / 60;
 export interface Example {
   file: string;
   usages: AccountUsage[];
+  tools?: ToolStatus[];
 }
 
 export const EXAMPLES: Example[] = [
@@ -102,6 +104,18 @@ export const EXAMPLES: Example[] = [
       ok('claude', 'work@example.com', [session(3, SESSION), week(30, null), fable(0, null)]),
       ok('chatgpt', 'pro@example.com', [chatgptWeek(35, CHATGPT), astra(20, CHATGPT)]),
       failed('grok', 'main', 'Unavailable (blocked)'),
+    ],
+  },
+  {
+    file: 'tools.svg',
+    usages: [
+      ok('claude', 'me@example.com', [session(20, SESSION), week(78, SOON), fable(100, SOON)]),
+      ok('chatgpt', 'pro@example.com', [chatgptWeek(35, CHATGPT), astra(20, CHATGPT)]),
+    ],
+    tools: [
+      { id: 'claude', installed: '2.1.330', latest: '2.1.341', updateAvailable: true },
+      { id: 'codex', installed: '0.171.0', latest: '0.173.0', updateAvailable: true },
+      { id: 'grok', installed: '1.0.89', latest: '1.0.89', updateAvailable: false },
     ],
   },
 ];
@@ -183,7 +197,7 @@ export function toSvg(ansi: string): string {
   ].join('\n');
 }
 
-export const renderExample = (example: Example): string => toSvg(renderOverview(example.usages, NOW, { color: 'truecolor' }));
+export const renderExample = (example: Example): string => toSvg(renderOverview(example.usages, NOW, { color: 'truecolor', ...(example.tools ? { tools: example.tools } : {}) }));
 
 export const EXAMPLES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'examples');
 

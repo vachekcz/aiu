@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { main, type CliDeps } from '../src/cli.ts';
+import type { ToolDeps } from '../src/tools.ts';
 import { accountId, type Account, type LoginIO, type Provider } from '../src/types.ts';
 
 const NOW = new Date('2026-11-18T22:00:00Z');
@@ -13,6 +14,35 @@ let credentials: Map<string, unknown>;
 let stdout: string;
 let stderr: string;
 let locks: string[];
+/** What `<tool> --version` prints; no tool is installed unless a test says so. */
+let toolVersions: Record<string, string>;
+/** The latest version the registry (or `grok update --check`) reports per tool. */
+let latestVersions: Record<string, string>;
+/** What `<tool> update` does: the version it installs, or the failure it reports. */
+let toolUpdates: Record<string, { installs?: string; fails?: string }>;
+let toolCommands: string[];
+
+const NPM_PACKAGES: Record<string, string> = { '@anthropic-ai/claude-code': 'claude', '@openai/codex': 'codex' };
+
+function toolDeps(): ToolDeps {
+  return {
+    run: async (command, args) => {
+      toolCommands.push([command, ...args].join(' '));
+      if (args[0] === '--version') return command in toolVersions ? { code: 0, output: toolVersions[command]! } : { code: null, output: '' };
+      if (args.includes('--check')) return { code: 0, output: JSON.stringify({ latestVersion: latestVersions[command] }) };
+      const update = toolUpdates[command] ?? {};
+      if (update.fails) return { code: 1, output: update.fails };
+      if (update.installs) toolVersions[command] = update.installs;
+      return { code: 0, output: '' };
+    },
+    fetch: (async (url: string) => {
+      const tool = NPM_PACKAGES[url.replace('https://registry.npmjs.org/', '').replace('/latest', '')];
+      return Response.json({ version: tool ? latestVersions[tool] : undefined });
+    }) as typeof fetch,
+    now: () => NOW,
+    cacheDir: () => dir,
+  };
+}
 
 const fakeProvider: Provider<{ token: string }> = {
   id: 'claude',
@@ -52,6 +82,7 @@ function deps(): Partial<CliDeps> {
       locks.push(name);
       return fn();
     },
+    tools: toolDeps(),
   };
 }
 
@@ -63,6 +94,10 @@ beforeEach(async () => {
   stdout = '';
   stderr = '';
   locks = [];
+  toolVersions = {};
+  latestVersions = {};
+  toolUpdates = {};
+  toolCommands = [];
 });
 
 afterEach(async () => {
@@ -103,6 +138,7 @@ describe('aiu', () => {
       generatedAt: NOW.toISOString(),
       accounts: [],
       recommendation: { providers: [], models: [], plan: [] },
+      tools: [],
     });
   });
 
@@ -117,6 +153,125 @@ describe('aiu', () => {
     accounts = [{ provider: 'claude', label: 'personal' }];
     expect(await main([], deps())).toBe(0);
     expect(stdout).toContain('No credentials stored');
+  });
+});
+
+describe('aiu: Tools section', () => {
+  beforeEach(() => {
+    toolVersions = { claude: '2.1.330 (Claude Code)', grok: 'grok 1.0.89' };
+    latestVersions = { claude: '2.1.341', grok: '1.0.89' };
+    accounts = [{ provider: 'claude', label: 'personal' }];
+    credentials.set('claude/personal', { token: 't' });
+  });
+
+  it('ends the default output with the installed tools', async () => {
+    expect(await main([], deps())).toBe(0);
+    expect(stdout.trimEnd().split('\n').slice(-4)).toEqual([
+      '',
+      'Tools  installed CLI versions · update with: aiu update',
+      '    claude   2.1.330  → 2.1.341',
+      '    grok     1.0.89   ✓ latest',
+    ]);
+  });
+
+  it('leaves the section out when no tool is installed', async () => {
+    toolVersions = {};
+    expect(await main([], deps())).toBe(0);
+    expect(stdout).not.toContain('Tools');
+  });
+
+  it('adds the tools to --json', async () => {
+    expect(await main(['--json'], deps())).toBe(0);
+    expect(JSON.parse(stdout).tools).toEqual([
+      { id: 'claude', installed: '2.1.330', latest: '2.1.341', updateAvailable: true },
+      { id: 'grok', installed: '1.0.89', latest: '1.0.89', updateAvailable: false },
+    ]);
+  });
+
+  it('shows the tools even when no account is configured', async () => {
+    accounts = [];
+    expect(await main([], deps())).toBe(0);
+    expect(stdout).toContain('No accounts yet.');
+    expect(stdout).toContain('    claude   2.1.330  → 2.1.341');
+    stdout = '';
+    expect(await main(['--json'], deps())).toBe(0);
+    expect(JSON.parse(stdout).tools).toHaveLength(2);
+  });
+
+  it('still prints the usage when the version checks blow up', async () => {
+    const broken: ToolDeps = {
+      ...toolDeps(),
+      run: async () => Promise.reject(new Error('spawn failed')),
+      cacheDir: () => {
+        throw new Error('no home');
+      },
+    };
+    expect(await main([], { ...deps(), tools: broken })).toBe(0);
+    expect(stdout).toContain('personal');
+    expect(stdout).not.toContain('Tools');
+  });
+
+  it('works without a usable cache directory', async () => {
+    const uncached: ToolDeps = {
+      ...toolDeps(),
+      cacheDir: () => {
+        throw new Error('no home');
+      },
+    };
+    expect(await main([], { ...deps(), tools: uncached })).toBe(0);
+    expect(stdout).toContain('    claude   2.1.330  → 2.1.341');
+  });
+});
+
+describe('aiu update', () => {
+  beforeEach(() => {
+    toolVersions = { claude: '2.1.330 (Claude Code)', codex: 'codex-cli 0.171.0' };
+    latestVersions = { claude: '2.1.341', codex: '0.171.0', grok: '1.0.92' };
+    toolUpdates = { claude: { installs: '2.1.341 (Claude Code)' } };
+  });
+
+  it('updates every installed tool and skips the ones that are not installed', async () => {
+    expect(await main(['update'], deps())).toBe(0);
+    expect(stdout).toBe(
+      ['  claude   2.1.330 → 2.1.341   ✓ updated', '  codex    0.171.0             ✓ already latest', ''].join('\n'),
+    );
+    expect(toolCommands).toContain('claude update');
+    expect(toolCommands).not.toContain('codex update');
+  });
+
+  it('updates only the named tools, accepting chatgpt for codex', async () => {
+    expect(await main(['update', 'chatgpt', 'codex'], deps())).toBe(0);
+    expect(stdout).toBe('  codex    0.171.0             ✓ already latest\n');
+    expect(toolCommands).not.toContain('claude update');
+  });
+
+  it('reports a failure, carries on with the other tools and exits 1', async () => {
+    toolUpdates = { claude: { fails: 'network unreachable' } };
+    expect(await main(['update', 'claude', 'codex'], deps())).toBe(1);
+    expect(stdout).toContain('  claude   2.1.330             ! failed: network unreachable');
+    expect(stdout).toContain('  codex    0.171.0             ✓ already latest');
+  });
+
+  it('reports a named tool that is not installed and exits 1', async () => {
+    expect(await main(['update', 'grok'], deps())).toBe(1);
+    expect(stdout).toBe('  grok                         ! not installed\n');
+  });
+
+  it('rejects an unknown tool before running anything', async () => {
+    expect(await main(['update', 'claude', 'gemini'], deps())).toBe(2);
+    expect(stderr).toContain('Unknown tool: gemini. Use one of: claude, codex, grok');
+    expect(toolCommands).toEqual([]);
+  });
+
+  it('says so when no tool is installed', async () => {
+    toolVersions = {};
+    expect(await main(['update'], deps())).toBe(0);
+    expect(stdout).toBe('No tools installed.\n');
+  });
+
+  it('keeps rejecting extra arguments of other commands', async () => {
+    expect(await main(['remove', 'claude/a', 'claude/b'], deps())).toBe(2);
+    expect(stderr).toContain('Unexpected argument: claude/b');
   });
 });
 

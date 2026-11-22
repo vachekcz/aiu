@@ -1,6 +1,7 @@
 # aiu — AI subscription usage
 
-Shows the current usage limits of your AI subscriptions (Claude, ChatGPT/Codex, Grok) in one table.
+Shows the current usage limits of your AI subscriptions (Claude, ChatGPT/Codex, Grok) in one table,
+and whether their CLI tools have an update.
 Uses each subscription's own login (OAuth / browser session), not API keys. macOS only.
 
 ## Install
@@ -25,6 +26,8 @@ aiu                                  # which account to use now, then all accoun
 aiu --json                           # same, machine-readable
 aiu accounts                         # list configured accounts
 aiu remove claude/me@example.com     # forget an account
+aiu update                           # update the claude, codex and grok CLIs
+aiu update claude                    # update just one (or several: aiu update codex grok)
 ```
 
 `aiu` prints two sections:
@@ -104,6 +107,28 @@ grok.com tab (the command prints where to copy them). Paid plans show their week
 accounts their query quota. The cookie cannot be refreshed: when grok.com logs it out, the row says
 `Login expired` and you paste a fresh one. If Cloudflare refuses the request, the row says
 `Unavailable (blocked)`.
+
+### CLI tool versions
+
+When `claude`, `codex` or `grok` is installed, the output ends with a `Tools` section: the installed
+version of each tool and, in orange, the newer version when there is one.
+
+![aiu output ending with a Tools section: claude and codex have a newer version, grok is up to date](docs/examples/tools.svg)
+
+The latest versions come from the npm registry (`claude`, `codex`) and from `grok update --check`. They
+are looked up at most once a day, in parallel with the usage, and a lookup that fails or takes more than
+3 seconds just leaves the newer version out. `aiu --json` lists the same under `tools`.
+
+`aiu update` runs each tool's own `update` command, one tool after another, and prints what happened:
+
+```
+  claude   2.1.330 → 2.1.341   ✓ updated
+  codex    0.171.0             ! failed: npm exited with code 1
+  grok     1.0.89              ✓ already latest
+```
+
+Name the tools to update only those (`chatgpt` also means `codex`). A tool that is already up to date is
+not run. One failing tool does not stop the others; the command then exits with code 1.
 
 ## How it stores things
 

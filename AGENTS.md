@@ -10,6 +10,8 @@ Instructions for coding agents working in this repo. User-facing docs live in
 that shows the usage limits of Claude, ChatGPT/Codex and Grok subscriptions. Each
 provider in `src/providers/` turns its unofficial usage endpoint into the
 normalised `Limit` from `src/types.ts`; `src/render.ts` prints a table or JSON.
+`src/tools.ts` checks the versions of the `claude`, `codex` and `grok` CLIs and runs their own
+`update` for `aiu update`.
 
 ## Commands
 

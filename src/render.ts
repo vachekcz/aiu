@@ -1,4 +1,5 @@
 import { byDeadline, findKind, freesUpAt, isUsedUp, modelName, recommend, SESSION_ROOM, type ProviderAdvice } from './recommend.ts';
+import type { ToolStatus, UpdateOutcome } from './tools.ts';
 import { accountId, type AccountUsage, type Limit, type ProviderId, type Severity } from './types.ts';
 
 const HOUR_MS = 3_600_000;
@@ -422,11 +423,61 @@ function useNowLine(name: string, advice: ProviderAdvice | undefined, usages: Ac
   return details.length === 0 ? parts : [...parts, segment(' — '), ...details.flatMap((detail, index) => (index === 0 ? detail : [segment(' · '), ...detail]))];
 }
 
+// ---------- tools ----------
+
+const TOOL_NAME_GAP = 3;
+const TOOL_VERSION_GAP = 2;
+const heading = (title: string, subtitle: Cell): Cell => [segment(title, 'bold'), segment('  '), ...subtitle];
+
+function toolLines(tools: ToolStatus[]): Cell[] {
+  if (tools.length === 0) return [];
+  const nameWidth = Math.max(...tools.map((tool) => tool.id.length)) + TOOL_NAME_GAP;
+  const versionWidth = Math.max(...tools.map((tool) => tool.installed.length)) + TOOL_VERSION_GAP;
+  const outdated = tools.some((tool) => tool.updateAvailable);
+  const state = (tool: ToolStatus): Cell => {
+    if (tool.updateAvailable) return [segment(`→ ${tool.latest}`, 'yellow')];
+    return tool.latest === null ? [] : [segment('✓ latest', 'green')];
+  };
+  return [
+    heading('Tools', [
+      segment(outdated ? 'installed CLI versions · update with: ' : 'installed CLI versions', 'dim'),
+      ...(outdated ? [segment('aiu update', 'cyan')] : []),
+    ]),
+    ...tools.map((tool) => [segment(`    ${tool.id.padEnd(nameWidth)}${tool.installed.padEnd(versionWidth)}`), ...state(tool)]),
+  ];
+}
+
+/**
+ * The `Tools` section: the installed version of each CLI tool and, when there is a newer one, that version.
+ * Empty when no tool is installed.
+ */
+export function renderTools(tools: ToolStatus[], options: { color: ColorMode }): string {
+  return toolLines(tools)
+    .map((line) => paintLine(line, options.color))
+    .join('\n');
+}
+
+const UPDATE_NAME_WIDTH = 9;
+const UPDATE_VERSION_WIDTH = 20;
+
+/** One line of `aiu update`: the tool, its version (or the change) and what happened. */
+export function renderUpdateOutcome(outcome: UpdateOutcome, options: { color: ColorMode }): string {
+  const versions = outcome.status === 'updated' ? `${outcome.from} → ${outcome.to}` : outcome.status === 'missing' ? '' : outcome.version;
+  const result: Record<UpdateOutcome['status'], Segment> = {
+    updated: segment('✓ updated', 'green'),
+    current: segment('✓ already latest', 'green'),
+    failed: segment(`! failed: ${outcome.status === 'failed' ? outcome.reason : ''}`, 'red'),
+    missing: segment('! not installed', 'red'),
+  };
+  return paintLine([segment(`  ${outcome.id.padEnd(UPDATE_NAME_WIDTH)}${versions.padEnd(UPDATE_VERSION_WIDTH)}`), result[outcome.status]], options.color);
+}
+
 /**
  * The default output: per provider, which account to use now, then every account in the order to burn its
  * weekly allowance (see recommend.ts), with its limits, time to the weekly reset and how much is left.
+ * The installed CLI tools, when given, follow as their own section.
  */
-export function renderOverview(usages: AccountUsage[], now: Date, options: { color: ColorMode }): string {
+export function renderOverview(usages: AccountUsage[], now: Date, options: { color: ColorMode; tools?: ToolStatus[] }): string {
   const advice = recommend(usages, now);
   const providers = [...new Set(usages.map((usage) => usage.account.provider))];
   const byProvider = (provider: ProviderId) => usages.filter((usage) => usage.account.provider === provider);
@@ -434,20 +485,20 @@ export function renderOverview(usages: AccountUsage[], now: Date, options: { col
   const sections = providers.map((provider) => providerSection(provider, byProvider(provider), adviceFor(provider), now));
   const nameWidth = Math.max(...sections.map((section) => section.name.length));
   const indent = (line: Cell): Cell => (line.length === 0 ? line : [segment('  '), ...line]);
-  const heading = (title: string, subtitle: string): Cell => [segment(title, 'bold'), segment(`  ${subtitle}`, 'dim')];
   const lines: Cell[] = [
-    heading('Use now', 'which account to work on right now'),
+    heading('Use now', [segment('which account to work on right now', 'dim')]),
     ...providers.map((provider, index) =>
       indent(useNowLine(sections[index]!.name.padEnd(nameWidth), adviceFor(provider), byProvider(provider), sections[index]!.burnable, now)),
     ),
     [],
-    heading('Accounts', 'burn top to bottom: earliest weekly reset first'),
+    heading('Accounts', [segment('burn top to bottom: earliest weekly reset first', 'dim')]),
     ...sectionLines(sections).flatMap((section, index) => [...(index > 0 ? [[]] : []), ...section.map(indent)]),
+    ...toolLines(options.tools ?? []).flatMap((line, index) => (index === 0 ? [[], line] : [line])),
   ];
   return lines.map((line) => paintLine(line, options.color)).join('\n');
 }
 
-export function renderJson(usages: AccountUsage[], now: Date): string {
+export function renderJson(usages: AccountUsage[], now: Date, tools: ToolStatus[] = []): string {
   const accounts = usages.map((usage) => {
     const base = {
       id: accountId(usage.account),
@@ -472,5 +523,5 @@ export function renderJson(usages: AccountUsage[], now: Date): string {
     };
   });
   // JSON.stringify turns the Dates in the advice into ISO strings.
-  return JSON.stringify({ generatedAt: now.toISOString(), accounts, recommendation: recommend(usages, now) }, null, 2);
+  return JSON.stringify({ generatedAt: now.toISOString(), accounts, recommendation: recommend(usages, now), tools }, null, 2);
 }
